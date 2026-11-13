@@ -3,10 +3,6 @@ using Microsoft.Playwright;
 
 namespace AutoClickSelector.Core;
 
-/// <summary>
-/// Điều khiển CốC CốC qua Playwright (CDP): quét tab, chọn tab, bấm phần tử,
-/// đọc chữ đang hiển thị và chuyển video.
-/// </summary>
 public sealed class BrowserController
 {
     private IPlaywright? playwright;
@@ -51,7 +47,6 @@ public sealed class BrowserController
                 }
                 catch
                 {
-                    // Bỏ qua: đang trên đường báo lỗi kết nối gốc.
                 }
             }
 
@@ -65,7 +60,7 @@ public sealed class BrowserController
         var result = new List<BrowserTab>();
 
         if (browser?.IsConnected != true)
-            throw new InvalidOperationException("Chưa kết nối CốC CốC.");
+            throw new InvalidOperationException("Chưa kết nối trình duyệt.");
 
         foreach (IBrowserContext context in browser.Contexts)
         {
@@ -98,7 +93,6 @@ public sealed class BrowserController
                 }
                 catch when (tabPage.IsClosed)
                 {
-                    // Tab có thể đóng trong lúc đang quét danh sách.
                 }
             }
         }
@@ -111,7 +105,7 @@ public sealed class BrowserController
     public async Task SelectTabAsync(BrowserTab tab, bool bringToFront = true)
     {
         if (browser?.IsConnected != true)
-            throw new InvalidOperationException("Chưa kết nối CốC CốC.");
+            throw new InvalidOperationException("Chưa kết nối trình duyệt.");
 
         if (tab.Page.IsClosed)
             throw new InvalidOperationException("Tab đã đóng. Hãy quét lại danh sách tab.");
@@ -123,11 +117,6 @@ public sealed class BrowserController
             await page.BringToFrontAsync();
     }
 
-    /// <summary>
-    /// Đặt prefers-color-scheme của trang theo chế độ ứng dụng mặc định của Windows, để các trang
-    /// theo máy hiển thị đúng với hệ thống thay vì bị ép sáng. Trang tự chọn sáng/tối bằng nút trên web
-    /// không bị ảnh hưởng. Nếu trang đã đóng thì bỏ qua.
-    /// </summary>
     private static async Task UseBrowserColorSchemeAsync(IPage target)
     {
         try
@@ -137,14 +126,9 @@ public sealed class BrowserController
         }
         catch (PlaywrightException)
         {
-            // Trang có thể vừa đóng; không cần báo lỗi.
         }
     }
 
-    /// <summary>
-    /// Chờ Selector hiển thị rồi bấm. Dùng vòng lặp kiểm tra thay vì chờ của Playwright
-    /// để nút Dừng luôn phản hồi ngay.
-    /// </summary>
     public async Task ClickAsync(
         string selector,
         int waitTimeoutMilliseconds = 3000,
@@ -155,28 +139,11 @@ public sealed class BrowserController
         if (string.IsNullOrWhiteSpace(selector))
             throw new ArgumentException("CSS Selector không được để trống.");
 
-        // .First: nếu Selector khớp nhiều phần tử thì vẫn bấm được phần tử đầu tiên,
-        // thay vì ném lỗi "strict mode violation" của Playwright.
         ILocator element = currentPage.Locator(selector).First;
 
         int waitMilliseconds = Math.Max(1, waitTimeoutMilliseconds);
-        DateTime deadline = DateTime.UtcNow.AddMilliseconds(waitMilliseconds);
+        await WaitForVisibleAsync(element, waitMilliseconds, cancellationToken);
 
-        while (true)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (await element.IsVisibleAsync())
-                break;
-
-            if (DateTime.UtcNow >= deadline)
-                throw new SelectorWaitTimeoutException(waitMilliseconds);
-
-            await Task.Delay(100, cancellationToken);
-        }
-
-        // Playwright click có thể chờ actionability (scroll/overlay/animation).
-        // Giới hạn riêng thao tác click để lệnh Dừng không bị treo hàng phút.
         cancellationToken.ThrowIfCancellationRequested();
         await element.ClickAsync(new LocatorClickOptions
         {
@@ -184,28 +151,70 @@ public sealed class BrowserController
         });
     }
 
-    /// <summary>
-    /// Tìm từ khóa trong chữ đang nằm trong khung nhìn. TikTok giữ sẵn các video kế bên
-    /// ngoài màn hình, nên không được quét toàn trang: nếu không sẽ thấy chữ "Sponsored"
-    /// của video tiếp theo quá sớm.
-    /// </summary>
+    public async Task FillAsync(
+        string selector,
+        string text,
+        int waitTimeoutMilliseconds = 5000,
+        CancellationToken cancellationToken = default)
+    {
+        IPage currentPage = RequireSelectedPage();
+
+        if (string.IsNullOrWhiteSpace(selector))
+            throw new ArgumentException("CSS Selector không được để trống.");
+
+        ILocator element = currentPage.Locator(selector).First;
+        int waitMilliseconds = Math.Max(1, waitTimeoutMilliseconds);
+
+        await WaitForVisibleAsync(element, waitMilliseconds, cancellationToken);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await element.FillAsync(text ?? string.Empty, new LocatorFillOptions
+        {
+            Timeout = Math.Clamp(waitMilliseconds, 1, 5000)
+        });
+    }
+
+    public async Task PressKeyAsync(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            return;
+
+        await RequireSelectedPage().Keyboard.PressAsync(key);
+    }
+
+    private static async Task WaitForVisibleAsync(
+        ILocator element,
+        int waitMilliseconds,
+        CancellationToken cancellationToken)
+    {
+        DateTime deadline = DateTime.UtcNow.AddMilliseconds(waitMilliseconds);
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (await element.IsVisibleAsync())
+                return;
+
+            if (DateTime.UtcNow >= deadline)
+                throw new SelectorWaitTimeoutException(waitMilliseconds);
+
+            await Task.Delay(100, cancellationToken);
+        }
+    }
+
     public async Task<(string Keyword, string Snippet)?> FindAdOnScreenAsync(IReadOnlyList<string> keywords)
     {
         string[] found = await EvaluateOnScreenTextAsync(keywords, list: false);
         return found.Length >= 2 ? (found[0], found[1]) : null;
     }
 
-    /// <summary>Chẩn đoán: chữ đang hiển thị trên màn hình. Dòng khớp từ khóa có dấu ★ phía trước.</summary>
     public async Task<List<string>> GetVisibleTextAsync(IReadOnlyList<string> keywords)
     {
         string[] found = await EvaluateOnScreenTextAsync(keywords, list: true);
         return found.ToList();
     }
 
-    /// <summary>
-    /// Chuyển sang video kế tiếp: bấm Selector nếu nút đang hiển thị,
-    /// nếu không thì nhấn phím mũi tên xuống.
-    /// </summary>
     public async Task<string> GoToNextVideoAsync(
         string selector,
         int waitTimeoutMilliseconds,
@@ -222,7 +231,6 @@ public sealed class BrowserController
             }
             catch (SelectorWaitTimeoutException)
             {
-                // Nút không hiển thị: dùng bàn phím ở bên dưới.
             }
         }
 
@@ -230,17 +238,12 @@ public sealed class BrowserController
         return "phím ↓ (không thấy nút Selector)";
     }
 
-    /// <summary>
-    /// Đưa tab đang chọn lên trước và nâng cửa sổ trình duyệt lên trên các cửa sổ khác.
-    /// Trả về false nếu không tìm được cửa sổ.
-    /// </summary>
     public async Task<bool> BringBrowserToForegroundAsync()
     {
         IPage currentPage = RequireSelectedPage();
 
         await currentPage.BringToFrontAsync();
 
-        // Cho trình duyệt một chút thời gian để cập nhật tiêu đề cửa sổ.
         await Task.Delay(200);
 
         var candidates = new List<string>();
@@ -253,13 +256,44 @@ public sealed class BrowserController
         }
         catch (PlaywrightException)
         {
-            // Dùng URL bên dưới làm phương án thay thế.
         }
 
         if (!string.IsNullOrWhiteSpace(currentPage.Url))
             candidates.Add(currentPage.Url);
 
         return WindowActivator.ActivateChromiumWindow(candidates);
+    }
+
+    public async Task<string?> GetElementSignatureAsync(string selector)
+    {
+        IPage currentPage = RequireSelectedPage();
+
+        if (string.IsNullOrWhiteSpace(selector))
+            return null;
+
+        try
+        {
+            return await currentPage.EvaluateAsync<string?>(
+                """
+                (sel) => {
+                    const el = document.querySelector(sel);
+                    if (!el) return null;
+                    const rect = el.getBoundingClientRect();
+                    const text = String(el.innerText || el.value || "").trim().slice(0, 60);
+                    const className = typeof el.className === "string" ? el.className : "";
+                    const disabled = el.disabled === true || el.getAttribute("aria-disabled") === "true";
+                    return [
+                        el.tagName, el.id || "", className, disabled ? "1" : "0",
+                        Math.round(rect.width) + "x" + Math.round(rect.height), text
+                    ].join("|");
+                }
+                """,
+                selector);
+        }
+        catch (PlaywrightException)
+        {
+            return null;
+        }
     }
 
     public async Task<SelectorValidationResult> ValidateSelectorAsync(string selector)
@@ -289,10 +323,6 @@ public sealed class BrowserController
         }
     }
 
-    /// <summary>
-    /// Đưa người dùng sang trình duyệt để bấm chọn một phần tử; trả về CSS Selector
-    /// được tạo, hoặc null nếu hủy bằng phím Esc (hoặc hết 2 phút).
-    /// </summary>
     public async Task<string?> PickElementAsync()
     {
         IPage currentPage = RequireSelectedPage();
@@ -326,7 +356,6 @@ public sealed class BrowserController
         }
         catch (PlaywrightException)
         {
-            // Trang có thể vừa đóng trong lúc ứng dụng đang thoát.
         }
     }
 
@@ -341,6 +370,31 @@ public sealed class BrowserController
         });
     }
 
+    public async Task<bool> OpenTabAsync(string url, CancellationToken cancellationToken = default)
+    {
+        if (browser?.IsConnected != true)
+            throw new InvalidOperationException("Chưa kết nối trình duyệt.");
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return false;
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        IBrowserContext context = browser.Contexts.FirstOrDefault()
+            ?? throw new InvalidOperationException("Không tìm thấy Browser Context.");
+
+        IPage newPage = await context.NewPageAsync();
+        await newPage.GotoAsync(uri.ToString(), new PageGotoOptions
+        {
+            WaitUntil = WaitUntilState.DOMContentLoaded,
+            Timeout = 30_000
+        });
+
+        page = newPage;
+        return true;
+    }
+
     public async Task StopAsync()
     {
         if (browser != null)
@@ -351,7 +405,6 @@ public sealed class BrowserController
             }
             catch
             {
-                // Trình duyệt có thể đã đóng sẵn.
             }
 
             browser = null;
@@ -382,8 +435,6 @@ public sealed class BrowserController
         return result ?? Array.Empty<string>();
     }
 
-    // Trả về [từ khóa, đoạn chữ] cho lần khớp đầu tiên (chế độ tìm kiếm),
-    // hoặc danh sách chữ hiển thị (chế độ chẩn đoán).
     private const string OnScreenTextScript = """
         (arg) => {
             if (!document.body) return [];
@@ -449,8 +500,6 @@ public sealed class BrowserController
         }
         """;
 
-    // Phủ lên trang một lớp chọn phần tử. Chặn các sự kiện chuột để không kích hoạt
-    // liên kết hay nút của trang trong lúc đang chọn.
     private const string PickElementScript = """
         () => new Promise((resolve) => {
             const root = document.documentElement;
