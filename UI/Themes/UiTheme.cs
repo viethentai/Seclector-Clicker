@@ -1,4 +1,6 @@
 using System.Drawing;
+using System.Windows.Forms;
+using AutoClickSelector.UI.Components;
 
 namespace AutoClickSelector.UI.Themes;
 
@@ -36,4 +38,25 @@ public static class UiTheme
     }
 
     public static Color Remap(Color color, Palette from) => Palette.Translate(color, from, Current);
+
+    public static Color BackdropOf(Control control)
+    {
+        Control? current = control.Parent;
+
+        while (current != null)
+        {
+            if (current is SectionCard)
+                return Surface;
+
+            if (current.BackColor != Color.Transparent)
+                return current.BackColor;
+
+            current = current.Parent;
+        }
+
+        return Background;
+    }
+
+    public static void ClearBackdrop(Control control, Graphics graphics) =>
+        graphics.Clear(BackdropOf(control));
 }
