@@ -1,4 +1,5 @@
 using AutoClickSelector.Models;
+using AutoClickSelector.Services;
 using Microsoft.Playwright;
 
 namespace AutoClickSelector.Core;
@@ -31,7 +32,7 @@ public sealed class BrowserController
             newBrowser = await newPlaywright.Chromium.ConnectOverCDPAsync($"http://127.0.0.1:{port}");
 
             if (newBrowser.Contexts.Count == 0)
-                throw new InvalidOperationException("Không tìm thấy Browser Context.");
+                throw new InvalidOperationException(Localization.T("Không tìm thấy Browser Context."));
 
             playwright = newPlaywright;
             browser = newBrowser;
@@ -60,7 +61,7 @@ public sealed class BrowserController
         var result = new List<BrowserTab>();
 
         if (browser?.IsConnected != true)
-            throw new InvalidOperationException("Chưa kết nối trình duyệt.");
+            throw new InvalidOperationException(Localization.T("Chưa kết nối trình duyệt."));
 
         foreach (IBrowserContext context in browser.Contexts)
         {
@@ -83,11 +84,11 @@ public sealed class BrowserController
                         if (tabPage.IsClosed)
                             continue;
 
-                        title = "(Không lấy được tiêu đề)";
+                        title = Localization.T("(Không lấy được tiêu đề)");
                     }
 
                     if (string.IsNullOrWhiteSpace(title))
-                        title = "(Không có tiêu đề)";
+                        title = Localization.T("(Không có tiêu đề)");
 
                     result.Add(new BrowserTab(tabPage, title, url));
                 }
@@ -105,10 +106,10 @@ public sealed class BrowserController
     public async Task SelectTabAsync(BrowserTab tab, bool bringToFront = true)
     {
         if (browser?.IsConnected != true)
-            throw new InvalidOperationException("Chưa kết nối trình duyệt.");
+            throw new InvalidOperationException(Localization.T("Chưa kết nối trình duyệt."));
 
         if (tab.Page.IsClosed)
-            throw new InvalidOperationException("Tab đã đóng. Hãy quét lại danh sách tab.");
+            throw new InvalidOperationException(Localization.T("Tab đã đóng. Hãy quét lại danh sách tab."));
 
         page = tab.Page;
         await UseBrowserColorSchemeAsync(page);
@@ -137,7 +138,7 @@ public sealed class BrowserController
         IPage currentPage = RequireSelectedPage();
 
         if (string.IsNullOrWhiteSpace(selector))
-            throw new ArgumentException("CSS Selector không được để trống.");
+            throw new ArgumentException(Localization.T("CSS Selector không được để trống."));
 
         ILocator element = currentPage.Locator(selector).First;
 
@@ -160,7 +161,7 @@ public sealed class BrowserController
         IPage currentPage = RequireSelectedPage();
 
         if (string.IsNullOrWhiteSpace(selector))
-            throw new ArgumentException("CSS Selector không được để trống.");
+            throw new ArgumentException(Localization.T("CSS Selector không được để trống."));
 
         ILocator element = currentPage.Locator(selector).First;
         int waitMilliseconds = Math.Max(1, waitTimeoutMilliseconds);
@@ -227,7 +228,7 @@ public sealed class BrowserController
             try
             {
                 await ClickAsync(selector, waitTimeoutMilliseconds, cancellationToken);
-                return "nút Selector";
+                return Localization.T("nút Selector");
             }
             catch (SelectorWaitTimeoutException)
             {
@@ -235,7 +236,7 @@ public sealed class BrowserController
         }
 
         await currentPage.Keyboard.PressAsync("ArrowDown");
-        return "phím ↓ (không thấy nút Selector)";
+        return Localization.T("phím ↓ (không thấy nút Selector)");
     }
 
     public async Task<bool> BringBrowserToForegroundAsync()
@@ -301,7 +302,7 @@ public sealed class BrowserController
         IPage currentPage = RequireSelectedPage();
 
         if (string.IsNullOrWhiteSpace(selector))
-            return new SelectorValidationResult(false, 0, 0, "Selector đang trống.");
+            return new SelectorValidationResult(false, 0, 0, Localization.T("Selector đang trống."));
 
         try
         {
@@ -335,7 +336,7 @@ public sealed class BrowserController
                 return null;
 
             isPickingElement = true;
-            return await currentPage.EvaluateAsync<string?>(PickElementScript);
+            return await currentPage.EvaluateAsync<string?>(PickElementScript.Replace("__PICK_TEXT__", Localization.T("Bấm vào phần tử cần chọn — Esc để hủy")));
         }
         finally
         {
@@ -373,7 +374,7 @@ public sealed class BrowserController
     public async Task<bool> OpenTabAsync(string url, CancellationToken cancellationToken = default)
     {
         if (browser?.IsConnected != true)
-            throw new InvalidOperationException("Chưa kết nối trình duyệt.");
+            throw new InvalidOperationException(Localization.T("Chưa kết nối trình duyệt."));
 
         if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) ||
             (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
@@ -382,7 +383,7 @@ public sealed class BrowserController
         cancellationToken.ThrowIfCancellationRequested();
 
         IBrowserContext context = browser.Contexts.FirstOrDefault()
-            ?? throw new InvalidOperationException("Không tìm thấy Browser Context.");
+            ?? throw new InvalidOperationException(Localization.T("Không tìm thấy Browser Context."));
 
         IPage newPage = await context.NewPageAsync();
         await newPage.GotoAsync(uri.ToString(), new PageGotoOptions
@@ -419,7 +420,7 @@ public sealed class BrowserController
     {
         IPage? currentPage = page;
         if (currentPage == null || currentPage.IsClosed)
-            throw new InvalidOperationException("Chưa chọn tab trình duyệt.");
+            throw new InvalidOperationException(Localization.T("Chưa chọn tab trình duyệt."));
 
         return currentPage;
     }
@@ -508,7 +509,7 @@ public sealed class BrowserController
             let finished = false;
             const timer = setTimeout(() => finish(null), 120000);
 
-            overlay.textContent = 'Bấm vào phần tử cần chọn — Esc để hủy';
+            overlay.textContent = '__PICK_TEXT__';
             Object.assign(overlay.style, {
                 position: 'fixed', top: '12px', left: '50%',
                 transform: 'translateX(-50%)', zIndex: '2147483647',
