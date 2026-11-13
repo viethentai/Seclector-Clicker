@@ -12,6 +12,8 @@ public sealed class BrowserController
     private IPlaywright? playwright;
     private IBrowser? browser;
     private IPage? page;
+    private bool isPickingElement;
+    private bool cancelPickRequested;
 
     public bool IsBrowserConnected => browser?.IsConnected == true;
 
@@ -294,9 +296,38 @@ public sealed class BrowserController
     public async Task<string?> PickElementAsync()
     {
         IPage currentPage = RequireSelectedPage();
+        cancelPickRequested = false;
 
-        await currentPage.BringToFrontAsync();
-        return await currentPage.EvaluateAsync<string?>(PickElementScript);
+        try
+        {
+            await currentPage.BringToFrontAsync();
+            if (cancelPickRequested)
+                return null;
+
+            isPickingElement = true;
+            return await currentPage.EvaluateAsync<string?>(PickElementScript);
+        }
+        finally
+        {
+            isPickingElement = false;
+        }
+    }
+
+    public async Task CancelPickElementAsync()
+    {
+        cancelPickRequested = true;
+        IPage? currentPage = page;
+        if (!isPickingElement || currentPage == null || currentPage.IsClosed)
+            return;
+
+        try
+        {
+            await currentPage.EvaluateAsync("() => window.__autoClickSelectorCancelPick?.()");
+        }
+        catch (PlaywrightException)
+        {
+            // Trang có thể vừa đóng trong lúc ứng dụng đang thoát.
+        }
     }
 
     public async Task RefreshPageAsync()
@@ -477,6 +508,7 @@ public sealed class BrowserController
                 if (finished) return;
                 finished = true;
                 clearTimeout(timer);
+                delete window.__autoClickSelectorCancelPick;
                 document.removeEventListener('click', onClick, true);
                 document.removeEventListener('keydown', onKey, true);
                 document.removeEventListener('mousemove', onMove, true);
@@ -547,6 +579,7 @@ public sealed class BrowserController
                 finish(null);
             }
 
+            window.__autoClickSelectorCancelPick = () => finish(null);
             document.addEventListener('click', onClick, true);
             document.addEventListener('keydown', onKey, true);
             document.addEventListener('mousemove', onMove, true);

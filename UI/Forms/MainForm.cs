@@ -26,6 +26,7 @@ public sealed partial class MainForm : Form
     private readonly System.Windows.Forms.Timer themeTimer = new() { Interval = 15 };
     private readonly AutoClickService autoClickService;
     private readonly KeywordWatcherService keywordWatcher;
+    private readonly HashSet<Task> activeBrowserOperations = [];
 
     private CancellationTokenSource? autoClickCancellation;
     private CancellationTokenSource? keywordCancellation;
@@ -47,6 +48,7 @@ public sealed partial class MainForm : Form
     private bool isPickingElement;
     private bool isOpeningBrowser;
     private bool isScanningTabs;
+    private bool isSelectingTab;
     private bool isRefreshingTabs;
     private bool isLoadingSelectors;
     private bool isSyncingKeywordToggle;
@@ -83,10 +85,13 @@ public sealed partial class MainForm : Form
     private bool IsBusy =>
         IsAutoClickRunning ||
         IsKeywordWatcherRunning ||
+        activeBrowserOperations.Count > 0 ||
+        manualClickTask != null ||
         isStarting ||
         isPickingElement ||
         isOpeningBrowser ||
-        isScanningTabs;
+        isScanningTabs ||
+        isSelectingTab;
 
     // ------------------------------------------------------------------
     // Trạng thái giao diện
@@ -96,7 +101,7 @@ public sealed partial class MainForm : Form
     {
         bool idle = !IsBusy;
         bool hasSelector = !string.IsNullOrWhiteSpace(txtSelector.Text);
-        bool canStartNew = !isStarting && !isPickingElement && !isOpeningBrowser && !isScanningTabs;
+        bool canStartNew = !isStarting && !isPickingElement && !isOpeningBrowser && !isScanningTabs && !isSelectingTab;
 
         cmbTabs.Enabled = idle;
         btnRefreshTabs.Enabled = idle;
@@ -207,11 +212,44 @@ public sealed partial class MainForm : Form
 
     private void Log(ActivityLevel level, string message) => logView.AddEntry(level, message);
 
+    private void StartTrackedBrowserOperation(Func<Task> operation)
+    {
+        if (shutdownInProgress || IsBusy)
+            return;
+
+        Task task = operation();
+        activeBrowserOperations.Add(task);
+        UpdateControlStates();
+        _ = ObserveBrowserOperationAsync(task);
+    }
+
+    private async Task ObserveBrowserOperationAsync(Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch (Exception exception)
+        {
+            if (!shutdownInProgress)
+                Log(ActivityLevel.Error, "Thao tác trình duyệt gặp lỗi: " + DescribeError(exception));
+        }
+        finally
+        {
+            activeBrowserOperations.Remove(task);
+            if (!shutdownInProgress)
+                UpdateControlStates();
+        }
+    }
+
     // ------------------------------------------------------------------
     // Trình duyệt: mở, quét tab, chọn tab
     // ------------------------------------------------------------------
 
-    private async void BtnRefreshTabs_Click(object? sender, EventArgs e)
+    private void BtnRefreshTabs_Click(object? sender, EventArgs e) =>
+        StartTrackedBrowserOperation(BtnRefreshTabsAsync);
+
+    private async Task BtnRefreshTabsAsync()
     {
         isScanningTabs = true;
         UpdateControlStates();
@@ -233,7 +271,10 @@ public sealed partial class MainForm : Form
         }
     }
 
-    private async void BtnOpenBrowser_Click(object? sender, EventArgs e)
+    private void BtnOpenBrowser_Click(object? sender, EventArgs e) =>
+        StartTrackedBrowserOperation(BtnOpenBrowserAsync);
+
+    private async Task BtnOpenBrowserAsync()
     {
         if (isOpeningBrowser)
             return;
@@ -395,7 +436,7 @@ public sealed partial class MainForm : Form
         UpdateConnectionStatus();
     }
 
-    private async void CmbTabs_SelectedIndexChanged(object? sender, EventArgs e)
+    private void CmbTabs_SelectedIndexChanged(object? sender, EventArgs e)
     {
         if (isRefreshingTabs ||
             IsBusy ||
@@ -405,6 +446,13 @@ public sealed partial class MainForm : Form
             return;
         }
 
+        StartTrackedBrowserOperation(() => SelectTabAsync(selectedTab));
+    }
+
+    private async Task SelectTabAsync(BrowserTab selectedTab)
+    {
+        isSelectingTab = true;
+        UpdateControlStates();
         try
         {
             await browser.SelectTabAsync(selectedTab);
@@ -416,13 +464,21 @@ public sealed partial class MainForm : Form
             Log(ActivityLevel.Error, "Không thể chọn tab: " + DescribeError(exception));
             UpdateConnectionStatus();
         }
+        finally
+        {
+            isSelectingTab = false;
+            UpdateControlStates();
+        }
     }
 
     // ------------------------------------------------------------------
     // Selector: kiểm tra, chọn, lưu
     // ------------------------------------------------------------------
 
-    private async void BtnValidateSelector_Click(object? sender, EventArgs e)
+    private void BtnValidateSelector_Click(object? sender, EventArgs e) =>
+        StartTrackedBrowserOperation(ValidateSelectorAsync);
+
+    private async Task ValidateSelectorAsync()
     {
         if (string.IsNullOrWhiteSpace(txtSelector.Text))
         {
@@ -472,7 +528,10 @@ public sealed partial class MainForm : Form
     }
 
     /// <summary>Liệt kê chữ đang hiển thị để người dùng tìm từ khóa quảng cáo.</summary>
-    private async void BtnShowVisible_Click(object? sender, EventArgs e)
+    private void BtnShowVisible_Click(object? sender, EventArgs e) =>
+        StartTrackedBrowserOperation(ShowVisibleTextAsync);
+
+    private async Task ShowVisibleTextAsync()
     {
         if (!browser.IsConnected)
         {
@@ -521,7 +580,10 @@ public sealed partial class MainForm : Form
         Log(valid ? ActivityLevel.Success : ActivityLevel.Error, message);
     }
 
-    private async void BtnPickElement_Click(object? sender, EventArgs e)
+    private void BtnPickElement_Click(object? sender, EventArgs e) =>
+        StartTrackedBrowserOperation(PickElementAsync);
+
+    private async Task PickElementAsync()
     {
         if (!browser.IsConnected)
         {
@@ -556,10 +618,14 @@ public sealed partial class MainForm : Form
             if (!await browser.BringBrowserToForegroundAsync())
                 Log(ActivityLevel.Warning, "Không tự chuyển được sang trình duyệt. Hãy tự mở tab đó rồi bấm vào phần tử.");
 
+            if (shutdownInProgress)
+                return;
+
             string? selector = await browser.PickElementAsync();
             if (string.IsNullOrWhiteSpace(selector))
             {
-                Log(ActivityLevel.Info, "Đã hủy chọn phần tử.");
+                if (!shutdownInProgress)
+                    Log(ActivityLevel.Info, "Đã hủy chọn phần tử.");
                 return;
             }
 
@@ -579,12 +645,15 @@ public sealed partial class MainForm : Form
             isPickingElement = false;
             btnPickElement.Text = PickElementIdleText;
             clickGate.Release();
-            UpdateControlStates();
-            UpdateConnectionStatus();
+            if (!shutdownInProgress)
+            {
+                UpdateControlStates();
+                UpdateConnectionStatus();
 
-            // Chọn xong (hoặc hủy): đưa cửa sổ ứng dụng trở lại.
-            if (!WindowActivator.Activate(Handle))
-                Activate();
+                // Chọn xong (hoặc hủy): đưa cửa sổ ứng dụng trở lại.
+                if (!WindowActivator.Activate(Handle))
+                    Activate();
+            }
         }
     }
 
@@ -678,7 +747,10 @@ public sealed partial class MainForm : Form
         }
     }
 
-    private async void BtnRefreshPage_Click(object? sender, EventArgs e)
+    private void BtnRefreshPage_Click(object? sender, EventArgs e) =>
+        StartTrackedBrowserOperation(RefreshPageAsync);
+
+    private async Task RefreshPageAsync()
     {
         if (!browser.IsConnected)
         {
@@ -841,6 +913,12 @@ public sealed partial class MainForm : Form
 
     private async void BtnClick_Click(object? sender, EventArgs e)
     {
+        if (IsBusy)
+        {
+            Log(ActivityLevel.Warning, "Đang có thao tác khác. Vui lòng chờ thao tác hiện tại hoàn tất.");
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(txtSelector.Text))
         {
             Log(ActivityLevel.Warning, "Vui lòng nhập Selector trước khi Click.");
@@ -870,6 +948,7 @@ public sealed partial class MainForm : Form
                 GetWaitTimeoutMilliseconds(),
                 cancellation.Token);
             manualClickTask = clickTask;
+            UpdateControlStates();
             await clickTask;
 
             RecordClick(true);
@@ -1179,8 +1258,10 @@ public sealed partial class MainForm : Form
             autoClickCancellation?.Cancel();
             keywordCancellation?.Cancel();
             manualClickCancellation?.Cancel();
+            await browser.CancelPickElementAsync();
 
-            Task[] activeTasks = new[] { autoClickTask, keywordWatcherTask, manualClickTask }
+            Task[] activeTasks = activeBrowserOperations
+                .Concat(new[] { autoClickTask, keywordWatcherTask, manualClickTask })
                 .Where(task => task != null)
                 .Cast<Task>()
                 .Distinct()
