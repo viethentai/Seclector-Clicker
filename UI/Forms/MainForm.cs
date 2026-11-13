@@ -85,6 +85,8 @@ public sealed partial class MainForm : Form
     private bool IsBusy =>
         IsAutoClickRunning ||
         IsKeywordWatcherRunning ||
+        activeBrowserOperations.Count > 0 ||
+        manualClickTask != null ||
         isStarting ||
         isPickingElement ||
         isOpeningBrowser ||
@@ -217,6 +219,7 @@ public sealed partial class MainForm : Form
 
         Task task = operation();
         activeBrowserOperations.Add(task);
+        UpdateControlStates();
         _ = ObserveBrowserOperationAsync(task);
     }
 
@@ -234,6 +237,8 @@ public sealed partial class MainForm : Form
         finally
         {
             activeBrowserOperations.Remove(task);
+            if (!shutdownInProgress)
+                UpdateControlStates();
         }
     }
 
