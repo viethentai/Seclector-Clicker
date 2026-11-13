@@ -5,10 +5,6 @@ using AutoClickSelector.UI.Themes;
 
 namespace AutoClickSelector.UI.Controls;
 
-/// <summary>
-/// Thanh cuộn dọc tự vẽ theo bảng màu. Không gắn trực tiếp vào control nào:
-/// chủ sở hữu gọi SetRange khi nội dung đổi và đọc Value để cuộn.
-/// </summary>
 public sealed class ThemedScrollBar : Control
 {
     private const int MinThumbHeight = 28;
@@ -43,7 +39,6 @@ public sealed class ThemedScrollBar : Control
 
     private bool Scrollable => MaxValue > 0;
 
-    /// <summary>Đặt tổng chiều dài nội dung và chiều dài vùng nhìn thấy (cùng đơn vị).</summary>
     public void SetRange(int totalSize, int viewportSize)
     {
         total = Math.Max(0, totalSize);
@@ -52,7 +47,6 @@ public sealed class ThemedScrollBar : Control
         Invalidate();
     }
 
-    /// <summary>Cập nhật vị trí mà không phát sự kiện (dùng khi đồng bộ với control khác).</summary>
     public void SetValueSilently(int newValue)
     {
         value = Math.Clamp(newValue, 0, MaxValue);
@@ -123,7 +117,6 @@ public sealed class ThemedScrollBar : Control
         }
         else
         {
-            // Bấm vào rãnh: nhảy một trang về phía đã bấm.
             SetValue(value + (e.Y < thumb.Top ? -viewport : viewport));
         }
 

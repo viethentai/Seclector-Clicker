@@ -3,7 +3,6 @@ using System.Text;
 
 namespace AutoClickSelector.Core;
 
-/// <summary>Hỗ trợ Win32 để chuyển qua lại giữa ứng dụng này và cửa sổ trình duyệt.</summary>
 internal static class WindowActivator
 {
     private const int SwRestore = 9;
@@ -40,7 +39,6 @@ internal static class WindowActivator
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowTextLength(IntPtr hWnd);
 
-    /// <summary>Khôi phục (nếu đang thu nhỏ) và đưa cửa sổ lên trước.</summary>
     public static bool Activate(IntPtr handle)
     {
         if (handle == IntPtr.Zero)
@@ -49,17 +47,12 @@ internal static class WindowActivator
         if (IsIconic(handle))
             ShowWindow(handle, SwRestore);
 
-        // Nhấn và thả Alt cho phép tiến trình này lấy quyền foreground từ ứng dụng khác.
         keybd_event(VkMenu, 0, 0, UIntPtr.Zero);
         keybd_event(VkMenu, 0, KeyEventKeyUp, UIntPtr.Zero);
 
         return SetForegroundWindow(handle);
     }
 
-    /// <summary>
-    /// Tìm cửa sổ Chromium có tiêu đề bắt đầu bằng một trong các giá trị gợi ý
-    /// (tiêu đề hoặc URL của tab đang chọn) rồi đưa cửa sổ đó lên trước.
-    /// </summary>
     public static bool ActivateChromiumWindow(IEnumerable<string> titleCandidates)
     {
         var candidates = titleCandidates

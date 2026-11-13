@@ -3,7 +3,6 @@ using System.Drawing.Drawing2D;
 
 namespace AutoClickSelector.UI.Themes;
 
-/// <summary>Hàm vẽ dùng chung cho các control tự vẽ.</summary>
 public static class UiDrawing
 {
     public static GraphicsPath RoundedRectangle(RectangleF rect, float radius)

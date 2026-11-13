@@ -3,11 +3,6 @@ using System.Windows.Forms;
 
 namespace AutoClickSelector.UI.Components;
 
-/// <summary>
-/// Chuyển sự kiện bánh xe chuột tới vùng đang nằm dưới con trỏ, dù control đó không có tiêu điểm.
-/// Khi có một cửa sổ "modal" (ví dụ danh sách thả xuống) đang mở, chỉ cửa sổ đó nhận bánh xe;
-/// phần còn lại của ứng dụng đứng yên.
-/// </summary>
 internal static class WheelRouter
 {
     private const int WmMouseWheel = 0x020A;
@@ -52,7 +47,6 @@ internal static class WheelRouter
 
             Point cursor = Cursor.Position;
 
-            // HIWORD của wParam là delta có dấu (120 cho mỗi nấc).
             int delta = (short)((m.WParam.ToInt64() >> 16) & 0xFFFF);
 
             if (modal is { } active)
@@ -60,7 +54,6 @@ internal static class WheelRouter
                 if (IsUnder(active.Target, cursor))
                     active.Scroll(delta);
 
-                // Khi đang có modal, bánh xe không cuộn gì khác.
                 return true;
             }
 
