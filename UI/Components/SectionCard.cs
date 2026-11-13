@@ -25,7 +25,7 @@ public sealed class SectionCard : TableLayoutPanel
 
         var titleLabel = new Label
         {
-            Text = title,
+            Text = AutoClickSelector.Services.Localization.T(title),
             Tag = title,
             Font = UiTheme.Heading,
             ForeColor = UiTheme.TextPrimary,
