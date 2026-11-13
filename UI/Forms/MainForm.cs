@@ -75,8 +75,6 @@ public sealed partial class MainForm : Form
         lastTabUrl = settings.LastTabUrl;
         CreateTrayIcon();
 
-        Shown += (_, _) => ActiveControl = null;
-
         settingsSaveTimer.Tick += SettingsSaveTimer_Tick;
 
         autoClickService = new AutoClickService(
