@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Net.Http;
-using System.Net.Sockets;
 using System.Text.Json;
 
 namespace AutoClickSelector.Core;
