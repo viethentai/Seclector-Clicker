@@ -62,9 +62,11 @@ internal static class Program
 
     private static void ReportFatal(Exception? exception)
     {
-        string detail = exception?.GetBaseException().Message ?? "Không có thông tin chi tiết.";
-        string text = "Ứng dụng gặp lỗi không mong đợi:\n\n" + detail +
-                      "\n\nNếu lỗi lặp lại, hãy gửi nội dung này cho nhà phát triển.";
+        string detail = exception?.GetBaseException().Message
+            ?? AutoClickSelector.Services.Localization.T("Không có thông tin chi tiết.");
+        string text = AutoClickSelector.Services.Localization.F(
+            "Ứng dụng gặp lỗi không mong đợi:\n\n{0}\n\nNếu lỗi lặp lại, hãy gửi nội dung này cho nhà phát triển.",
+            detail);
 
         try
         {
