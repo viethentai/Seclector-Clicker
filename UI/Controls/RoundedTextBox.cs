@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -39,6 +40,7 @@ public sealed class RoundedTextBox : Control
         Controls.Add(input);
     }
 
+    [AllowNull]
     public override string Text
     {
         get => input.Text;

@@ -50,7 +50,7 @@ public sealed record Palette(
     private Color[] Slots => new[]
     {
         Background, Surface, SurfaceAlt, SurfaceHover, Border,
-        TextPrimary, TextMuted, Accent, Success, Warning, Danger, Process
+        TextPrimary, TextMuted, Accent, OnAccent, Success, Warning, Danger, Process
     };
 
     public static Color Translate(Color color, Palette from, Palette to)
