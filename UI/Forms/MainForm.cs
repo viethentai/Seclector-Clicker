@@ -75,6 +75,8 @@ public sealed partial class MainForm : Form
         lastTabUrl = settings.LastTabUrl;
         CreateTrayIcon();
 
+        Shown += (_, _) => ActiveControl = null;
+
         settingsSaveTimer.Tick += SettingsSaveTimer_Tick;
 
         autoClickService = new AutoClickService(
@@ -97,7 +99,7 @@ public sealed partial class MainForm : Form
         UpdateControlStates();
 
         Log(ActivityLevel.Info,
-            "Sẵn sàng. Bấm \"Mở trình duyệt\" để mở trình duyệt, hoặc \"Quét tab\" nếu trình duyệt đã mở sẵn với cổng kết nối.");
+            Localization.T("Sẵn sàng. Bấm \"Mở trình duyệt\" để mở trình duyệt, hoặc \"Quét tab\" nếu trình duyệt đã mở sẵn với cổng kết nối."));
     }
 
     private bool IsAutoClickRunning => autoClickCancellation != null;
@@ -202,7 +204,7 @@ public sealed partial class MainForm : Form
     private void UpdateConnectionStatus()
     {
         if (browser.IsConnected && cmbTabs.SelectedItem is BrowserTab tab)
-            SetConnection(Localization.T("● Sẵn sàng"), UiTheme.Success, $"Đã chọn: {tab.Title} | {ShortUrl(tab.Url)}");
+            SetConnection(Localization.T("● Sẵn sàng"), UiTheme.Success, Localization.F("Đã chọn: {0} | {1}", tab.Title, ShortUrl(tab.Url)));
         else if (browser.IsBrowserConnected)
             SetConnection(Localization.T("● Đã kết nối"), UiTheme.Warning, Localization.T("Hãy quét tab và chọn một tab."));
         else
@@ -339,6 +341,7 @@ public sealed partial class MainForm : Form
         RefreshLogFilterItems();
         RefreshBrowserItems();
         RefreshIntervalUnitItems();
+        UpdateDarkModeLabel(UiTheme.IsDark);
         UpdateControlStates();
     }
 
@@ -351,7 +354,7 @@ public sealed partial class MainForm : Form
 
             try
             {
-                Log(ActivityLevel.Process, $"Mất kết nối trình duyệt. Đang thử kết nối lại ({attempt}/3)...");
+                Log(ActivityLevel.Process, Localization.F("Mất kết nối trình duyệt. Đang thử kết nối lại ({0}/3)...", attempt));
                 await Task.Delay(TimeSpan.FromSeconds(attempt), token);
 
                 if (attempt == 2)
@@ -361,7 +364,7 @@ public sealed partial class MainForm : Form
 
                 if (!await SelectRecoveredTabAsync(token))
                 {
-                    Log(ActivityLevel.Warning, "Chưa chọn được tab sau khi kết nối lại.");
+                    Log(ActivityLevel.Warning, Localization.T("Chưa chọn được tab sau khi kết nối lại."));
                     continue;
                 }
 
@@ -376,7 +379,7 @@ public sealed partial class MainForm : Form
             }
             catch (Exception exception)
             {
-                Log(ActivityLevel.Warning, "Kết nối lại thất bại: " + DescribeError(exception));
+                Log(ActivityLevel.Warning, Localization.F("Kết nối lại thất bại: {0}", DescribeError(exception)));
             }
         }
 
@@ -392,18 +395,18 @@ public sealed partial class MainForm : Form
 
         try
         {
-            Log(ActivityLevel.Process, "Trình duyệt đã đóng. Đang mở lại...");
+            Log(ActivityLevel.Process, Localization.T("Trình duyệt đã đóng. Đang mở lại..."));
             BrowserLauncher.Start(executable);
 
             bool ready = await BrowserLauncher.WaitForDebugPortAsync(
                 BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15));
 
             if (!ready)
-                Log(ActivityLevel.Warning, "Cổng kết nối chưa sẵn sàng sau 15 giây.");
+                Log(ActivityLevel.Warning, Localization.T("Cổng kết nối chưa sẵn sàng sau 15 giây."));
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không mở lại được trình duyệt: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Không mở lại được trình duyệt: {0}", DescribeError(exception)));
         }
     }
 
@@ -414,7 +417,7 @@ public sealed partial class MainForm : Form
 
         if (target is null && lastTabUrl.Length > 0)
         {
-            Log(ActivityLevel.Process, "Không thấy tab cũ. Đang mở lại: " + ShortUrl(lastTabUrl));
+            Log(ActivityLevel.Process, Localization.F("Không thấy tab cũ. Đang mở lại: {0}", ShortUrl(lastTabUrl)));
 
             if (await browser.OpenTabAsync(lastTabUrl, token))
             {
@@ -428,7 +431,7 @@ public sealed partial class MainForm : Form
 
         await browser.SelectTabAsync(target, bringToFront: false);
         lastTabUrl = target.Url;
-        Log(ActivityLevel.Success, $"Đã kết nối lại và chọn tab: {ShortUrl(target.Url)}");
+        Log(ActivityLevel.Success, Localization.F("Đã kết nối lại và chọn tab: {0}", ShortUrl(target.Url)));
         return true;
     }
 
@@ -505,8 +508,8 @@ public sealed partial class MainForm : Form
 
         hotkeysRegistered = GlobalHotkey.RegisterAll(Handle);
         if (!hotkeysRegistered)
-            Log(ActivityLevel.Warning,
-                "Không đăng ký được phím tắt toàn cục (có thể ứng dụng khác đang dùng F6/F7/F8).");
+            Log(ActivityLevel.Warning, Localization.T(
+                "Không đăng ký được phím tắt toàn cục (có thể ứng dụng khác đang dùng F6/F7/F8)."));
     }
 
     private void ApplyHotkeySetting(bool enabled)
@@ -570,7 +573,7 @@ public sealed partial class MainForm : Form
         }
 
         SaveSettings(settings => settings.BrowserFamily = BrowserFamilyCode(cmbBrowser.SelectedIndex));
-        Log(ActivityLevel.Info, "Trình duyệt sẽ mở: " + cmbBrowser.SelectedItem);
+        Log(ActivityLevel.Info, Localization.F("Trình duyệt sẽ mở: {0}", cmbBrowser.SelectedItem?.ToString() ?? string.Empty));
     }
 
     private void BtnBrowseBrowser_Click(object? sender, EventArgs e) => PickCustomBrowser();
@@ -580,7 +583,7 @@ public sealed partial class MainForm : Form
         using var dialog = new OpenFileDialog
         {
             Title = Localization.T("Chọn trình duyệt"),
-            Filter = "Chương trình (*.exe)|*.exe",
+            Filter = Localization.T("Chương trình (*.exe)|*.exe"),
             CheckFileExists = true
         };
 
@@ -605,7 +608,7 @@ public sealed partial class MainForm : Form
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            Log(ActivityLevel.Warning, "Không lưu được đường dẫn trình duyệt: " + DescribeError(exception));
+            Log(ActivityLevel.Warning, Localization.F("Không lưu được đường dẫn trình duyệt: {0}", DescribeError(exception)));
         }
 
         SettingsStore.Current.BrowserFamily = "custom";
@@ -621,7 +624,7 @@ public sealed partial class MainForm : Form
             isLoadingSettings = false;
         }
 
-        Log(ActivityLevel.Info, "Đã chọn trình duyệt: " + dialog.FileName);
+        Log(ActivityLevel.Info, Localization.F("Đã chọn trình duyệt: {0}", dialog.FileName));
     }
 
     private void CmbLogFilter_SelectedIndexChanged(object? sender, EventArgs e)
@@ -654,11 +657,11 @@ public sealed partial class MainForm : Form
         try
         {
             logView.ExportTo(dialog.FileName);
-            Log(ActivityLevel.Success, "Đã xuất nhật ký: " + dialog.FileName);
+            Log(ActivityLevel.Success, Localization.F("Đã xuất nhật ký: {0}", dialog.FileName));
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không xuất được nhật ký: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Không xuất được nhật ký: {0}", DescribeError(exception)));
         }
     }
 
@@ -716,7 +719,7 @@ public sealed partial class MainForm : Form
         catch (Exception exception)
         {
             if (!shutdownInProgress)
-                Log(ActivityLevel.Error, "Thao tác trình duyệt gặp lỗi: " + DescribeError(exception));
+                Log(ActivityLevel.Error, Localization.F("Thao tác trình duyệt gặp lỗi: {0}", DescribeError(exception)));
         }
         finally
         {
@@ -735,7 +738,7 @@ public sealed partial class MainForm : Form
         UpdateControlStates();
         try
         {
-            Log(ActivityLevel.Process, "Đang kết nối trình duyệt để quét tab...");
+            Log(ActivityLevel.Process, Localization.T("Đang kết nối trình duyệt để quét tab..."));
             await browser.ConnectAsync();
             await RefreshTabsAsync();
         }
@@ -760,7 +763,7 @@ public sealed partial class MainForm : Form
             return;
 
         isOpeningBrowser = true;
-        btnOpenBrowser.Text = "Đang mở...";
+        btnOpenBrowser.Text = Localization.T("Đang mở...");
         UpdateControlStates();
         try
         {
@@ -768,12 +771,12 @@ public sealed partial class MainForm : Form
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không mở được trình duyệt: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Không mở được trình duyệt: {0}", DescribeError(exception)));
         }
         finally
         {
             isOpeningBrowser = false;
-            btnOpenBrowser.Text = OpenBrowserIdleText;
+            btnOpenBrowser.Text = Localization.T(OpenBrowserIdleText);
             UpdateControlStates();
             UpdateConnectionStatus();
         }
@@ -785,13 +788,13 @@ public sealed partial class MainForm : Form
 
         if (family.Length == 0)
         {
-            Log(ActivityLevel.Warning, "Hãy chọn trình duyệt cần mở trong ô 'Chọn trình duyệt'.");
+            Log(ActivityLevel.Warning, Localization.T("Hãy chọn trình duyệt cần mở trong ô 'Chọn trình duyệt'."));
             return;
         }
 
         if (await BrowserLauncher.IsDebugPortOpenAsync())
         {
-            Log(ActivityLevel.Success, "Trình duyệt đã mở sẵn với cổng kết nối. Hãy bấm 'Quét tab' để chọn tab.");
+            Log(ActivityLevel.Success, Localization.T("Trình duyệt đã mở sẵn với cổng kết nối. Hãy bấm 'Quét tab' để chọn tab."));
             return;
         }
 
@@ -803,7 +806,7 @@ public sealed partial class MainForm : Form
 
             if (executable == null)
             {
-                Log(ActivityLevel.Warning, "Chưa chọn đường dẫn trình duyệt nên đã hủy.");
+                Log(ActivityLevel.Warning, Localization.T("Chưa chọn đường dẫn trình duyệt nên đã hủy."));
                 return;
             }
 
@@ -813,17 +816,15 @@ public sealed partial class MainForm : Form
         if (executable == null)
         {
             Log(ActivityLevel.Warning,
-                "Không tìm thấy trình duyệt đã chọn. Hãy bấm nút '...' để chọn đường dẫn.");
+                Localization.T("Không tìm thấy trình duyệt đã chọn. Hãy bấm nút '...' để chọn đường dẫn."));
             return;
         }
 
         if (BrowserLauncher.IsBrowserRunning(executable))
         {
-            Log(ActivityLevel.Warning, "Trình duyệt đang chạy nhưng chưa mở cổng kết nối nên không thể điều khiển.");
+            Log(ActivityLevel.Warning, Localization.T("Trình duyệt đang chạy nhưng chưa mở cổng kết nối nên không thể điều khiển."));
             DialogResult answer = MessageBox.Show(
-                this,
-                "Trình duyệt đang mở mà không có cổng kết nối.\n\n" +
-                "Đóng trình duyệt để ứng dụng mở lại với cấu hình kết nối? Các tab chưa lưu có thể bị mất.",
+                Localization.T("Trình duyệt đang mở mà không có cổng kết nối.\n\nĐóng trình duyệt để ứng dụng mở lại với cấu hình kết nối? Các tab chưa lưu có thể bị mất."),
                 AppTitle,
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question,
@@ -831,23 +832,23 @@ public sealed partial class MainForm : Form
 
             if (answer != DialogResult.Yes)
             {
-                Log(ActivityLevel.Info, "Đã hủy. Hãy tự đóng trình duyệt rồi bấm 'Mở trình duyệt' lại.");
+                Log(ActivityLevel.Info, Localization.T("Đã hủy. Hãy tự đóng trình duyệt rồi bấm 'Mở trình duyệt' lại."));
                 return;
             }
 
-            Log(ActivityLevel.Process, "Đang đóng trình duyệt...");
+            Log(ActivityLevel.Process, Localization.T("Đang đóng trình duyệt..."));
 
             if (!await BrowserLauncher.CloseBrowserAsync(executable, TimeSpan.FromSeconds(15)))
             {
                 Log(ActivityLevel.Error,
-                    "Trình duyệt vẫn đang chạy (có thể chạy nền). Hãy thoát hẳn rồi bấm 'Mở trình duyệt' lại.");
+                    Localization.T("Trình duyệt vẫn đang chạy (có thể chạy nền). Hãy thoát hẳn rồi bấm 'Mở trình duyệt' lại."));
                 return;
             }
 
-            Log(ActivityLevel.Info, "Đã đóng trình duyệt.");
+            Log(ActivityLevel.Info, Localization.T("Đã đóng trình duyệt."));
         }
 
-        Log(ActivityLevel.Process, "Đang khởi chạy trình duyệt...");
+        Log(ActivityLevel.Process, Localization.T("Đang khởi chạy trình duyệt..."));
 
         try
         {
@@ -856,7 +857,7 @@ public sealed partial class MainForm : Form
         catch (Exception exception)
         {
             Log(ActivityLevel.Error,
-                "Không khởi chạy được trình duyệt. Hãy kiểm tra đường dẫn: " + DescribeError(exception));
+                Localization.F("Không khởi chạy được trình duyệt. Hãy kiểm tra đường dẫn: {0}", DescribeError(exception)));
             return;
         }
 
@@ -865,13 +866,12 @@ public sealed partial class MainForm : Form
 
         if (ready)
         {
-            Log(ActivityLevel.Success, "Trình duyệt đã mở thành công. Hãy bấm 'Quét tab' để chọn tab.");
+            Log(ActivityLevel.Success, Localization.T("Trình duyệt đã mở thành công. Hãy bấm 'Quét tab' để chọn tab."));
         }
         else
         {
-            Log(ActivityLevel.Error,
-                "Đã gọi lệnh mở nhưng cổng kết nối chưa sẵn sàng. Có thể trình duyệt còn chạy nền từ phiên trước, " +
-                "hoặc phiên bản trình duyệt không cho phép cổng gỡ lỗi với hồ sơ mặc định.");
+            Log(ActivityLevel.Error, Localization.T(
+                "Đã gọi lệnh mở nhưng cổng kết nối chưa sẵn sàng. Có thể trình duyệt còn chạy nền từ phiên trước, hoặc phiên bản trình duyệt không cho phép cổng gỡ lỗi với hồ sơ mặc định."));
         }
     }
 
@@ -880,7 +880,7 @@ public sealed partial class MainForm : Form
         using var dialog = new OpenFileDialog
         {
             Title = Localization.T("Chọn trình duyệt"),
-            Filter = "Chương trình (*.exe)|*.exe",
+            Filter = Localization.T("Chương trình (*.exe)|*.exe"),
             CheckFileExists = true,
             Multiselect = false
         };
@@ -913,15 +913,15 @@ public sealed partial class MainForm : Form
             await browser.SelectTabAsync(tabs[selectedIndex], bringToFront: false);
             lastTabUrl = tabs[selectedIndex].Url;
             SaveSettings(settings => settings.LastTabUrl = lastTabUrl);
-            Log(ActivityLevel.Success, $"Tìm thấy {tabs.Count} tab; đang chọn: {ShortUrl(tabs[selectedIndex].Url)}");
+            Log(ActivityLevel.Success, Localization.F("Tìm thấy {0} tab; đang chọn: {1}", tabs.Count, ShortUrl(tabs[selectedIndex].Url)));
         }
         else if (tabs.Count > 0)
         {
-            Log(ActivityLevel.Info, $"Tìm thấy {tabs.Count} tab. Hãy chọn tab cần dùng trong danh sách.");
+            Log(ActivityLevel.Info, Localization.F("Tìm thấy {0} tab. Hãy chọn tab cần dùng trong danh sách.", tabs.Count));
         }
         else
         {
-            Log(ActivityLevel.Warning, "Không tìm thấy tab đang mở.");
+            Log(ActivityLevel.Warning, Localization.T("Không tìm thấy tab đang mở."));
         }
 
         UpdateConnectionStatus();
@@ -950,11 +950,11 @@ public sealed partial class MainForm : Form
             lastTabUrl = selectedTab.Url;
             SaveSettings(settings => settings.LastTabUrl = lastTabUrl);
             UpdateConnectionStatus();
-            Log(ActivityLevel.Success, $"Đã chọn tab: {selectedTab.Title} | {ShortUrl(selectedTab.Url)}");
+            Log(ActivityLevel.Success, Localization.F("Đã chọn tab: {0} | {1}", selectedTab.Title, ShortUrl(selectedTab.Url)));
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không thể chọn tab: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Không thể chọn tab: {0}", DescribeError(exception)));
             UpdateConnectionStatus();
         }
         finally
@@ -971,19 +971,19 @@ public sealed partial class MainForm : Form
     {
         if (string.IsNullOrWhiteSpace(txtSelector.Text))
         {
-            ShowSelectorValidation(false, "Vui lòng nhập Selector trước.");
+            ShowSelectorValidation(false, Localization.T("Vui lòng nhập Selector trước."));
             return;
         }
 
         if (isPickingElement)
         {
-            Log(ActivityLevel.Warning, "Hãy hoàn tất hoặc hủy thao tác chọn phần tử trước.");
+            Log(ActivityLevel.Warning, Localization.T("Hãy hoàn tất hoặc hủy thao tác chọn phần tử trước."));
             return;
         }
 
         if (!browser.IsConnected)
         {
-            ShowSelectorValidation(false, "Hãy kết nối và chọn tab trước.");
+            ShowSelectorValidation(false, Localization.T("Hãy kết nối và chọn tab trước."));
             return;
         }
 
@@ -993,21 +993,21 @@ public sealed partial class MainForm : Form
             SelectorValidationResult result = await browser.ValidateSelectorAsync(txtSelector.Text);
             if (!result.IsValid)
             {
-                ShowSelectorValidation(false, "✗ Selector không hợp lệ: " + result.Error);
+                ShowSelectorValidation(false, Localization.F("✗ Selector không hợp lệ: {0}", result.Error ?? string.Empty));
             }
             else if (result.MatchCount == 0)
             {
-                ShowSelectorValidation(true, "Selector hợp lệ nhưng chưa tìm thấy phần tử nào.");
+                ShowSelectorValidation(true, Localization.T("Selector hợp lệ nhưng chưa tìm thấy phần tử nào."));
             }
             else
             {
                 ShowSelectorValidation(true,
-                    $"✓ Selector hợp lệ  |  Tìm thấy: {result.MatchCount}  |  Hiển thị: {result.VisibleCount}");
+                    Localization.F("✓ Selector hợp lệ  |  Tìm thấy: {0}  |  Hiển thị: {1}", result.MatchCount, result.VisibleCount));
             }
         }
         catch (Exception exception)
         {
-            ShowSelectorValidation(false, "Không thể kiểm tra Selector: " + DescribeError(exception));
+            ShowSelectorValidation(false, Localization.F("Không thể kiểm tra Selector: {0}", DescribeError(exception)));
             UpdateConnectionStatus();
         }
         finally
@@ -1023,7 +1023,7 @@ public sealed partial class MainForm : Form
     {
         if (!browser.IsConnected)
         {
-            Log(ActivityLevel.Warning, "Hãy quét tab và chọn một tab trước.");
+            Log(ActivityLevel.Warning, Localization.T("Hãy quét tab và chọn một tab trước."));
             return;
         }
 
@@ -1034,18 +1034,18 @@ public sealed partial class MainForm : Form
 
             if (lines.Count == 0)
             {
-                Log(ActivityLevel.Info, "Không thấy văn bản nào đang hiển thị trên màn hình.");
+                Log(ActivityLevel.Info, Localization.T("Không thấy văn bản nào đang hiển thị trên màn hình."));
             }
             else
             {
-                Log(ActivityLevel.Info, $"Văn bản đang hiển thị trên màn hình ({lines.Count}; ★ = khớp từ khóa):");
+                Log(ActivityLevel.Info, Localization.F("Văn bản đang hiển thị trên màn hình ({0}; ★ = khớp từ khóa):", lines.Count));
                 foreach (string line in lines)
                     Log(ActivityLevel.Info, "    " + line);
             }
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không thể đọc văn bản trên trang: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Không thể đọc văn bản trên trang: {0}", DescribeError(exception)));
             UpdateConnectionStatus();
         }
         finally
@@ -1075,36 +1075,35 @@ public sealed partial class MainForm : Form
     {
         if (!browser.IsConnected)
         {
-            Log(ActivityLevel.Warning, "Hãy kết nối và chọn tab trước khi chọn phần tử.");
+            Log(ActivityLevel.Warning, Localization.T("Hãy kết nối và chọn tab trước khi chọn phần tử."));
             return;
         }
 
         if (IsBusy)
         {
-            Log(ActivityLevel.Warning, "Đang có thao tác khác. Hãy dừng các chức năng đang chạy trước khi chọn phần tử.");
+            Log(ActivityLevel.Warning, Localization.T("Đang có thao tác khác. Hãy dừng các chức năng đang chạy trước khi chọn phần tử."));
             return;
         }
 
         if (!await clickGate.WaitAsync(0))
         {
-            Log(ActivityLevel.Warning, "Đang có thao tác khác. Vui lòng thử lại.");
+            Log(ActivityLevel.Warning, Localization.T("Đang có thao tác khác. Vui lòng thử lại."));
             return;
         }
 
         isPickingElement = true;
-        btnPickElement.Text = "Đang chọn...";
-        lblSelectorValidation.Text = "Đang chờ bạn chọn phần tử trên trình duyệt (Esc để hủy).";
+        btnPickElement.Text = Localization.T("Đang chọn...");
+        lblSelectorValidation.Text = Localization.T("Đang chờ bạn chọn phần tử trên trình duyệt (Esc để hủy).");
         lblSelectorValidation.Visible = true;
         lblSelectorValidation.ForeColor = UiTheme.Warning;
         UpdateControlStates();
-        Log(ActivityLevel.Process,
-            "Đang chuyển sang trình duyệt. Hãy bấm vào phần tử cần chọn (Esc để hủy); " +
-            "ứng dụng sẽ tự quay lại sau khi bạn chọn.");
+        Log(ActivityLevel.Process, Localization.T(
+            "Đang chuyển sang trình duyệt. Hãy bấm vào phần tử cần chọn (Esc để hủy); ứng dụng sẽ tự quay lại sau khi bạn chọn."));
 
         try
         {
             if (!await browser.BringBrowserToForegroundAsync())
-                Log(ActivityLevel.Warning, "Không tự chuyển được sang trình duyệt. Hãy tự mở tab đó rồi bấm vào phần tử.");
+                Log(ActivityLevel.Warning, Localization.T("Không tự chuyển được sang trình duyệt. Hãy tự mở tab đó rồi bấm vào phần tử."));
 
             if (shutdownInProgress)
                 return;
@@ -1113,25 +1112,25 @@ public sealed partial class MainForm : Form
             if (string.IsNullOrWhiteSpace(selector))
             {
                 if (!shutdownInProgress)
-                    Log(ActivityLevel.Info, "Đã hủy chọn phần tử.");
+                    Log(ActivityLevel.Info, Localization.T("Đã hủy chọn phần tử."));
                 return;
             }
 
             txtSelector.Text = selector;
-            lblSelectorValidation.Text = "Đã tạo Selector. Hãy bấm Kiểm tra trước khi lưu hoặc chạy.";
+            lblSelectorValidation.Text = Localization.T("Đã tạo Selector. Hãy bấm Kiểm tra trước khi lưu hoặc chạy.");
             lblSelectorValidation.Visible = true;
             lblSelectorValidation.ForeColor = UiTheme.Warning;
-            Log(ActivityLevel.Success, "Đã chọn phần tử và tạo Selector: " + selector);
+            Log(ActivityLevel.Success, Localization.F("Đã chọn phần tử và tạo Selector: {0}", selector));
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không thể chọn phần tử: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Không thể chọn phần tử: {0}", DescribeError(exception)));
             UpdateConnectionStatus();
         }
         finally
         {
             isPickingElement = false;
-            btnPickElement.Text = PickElementIdleText;
+            btnPickElement.Text = Localization.T(PickElementIdleText);
             clickGate.Release();
             if (!shutdownInProgress)
             {
@@ -1158,13 +1157,13 @@ public sealed partial class MainForm : Form
     {
         if (string.IsNullOrWhiteSpace(txtSelectorName.Text))
         {
-            Log(ActivityLevel.Warning, "Vui lòng nhập tên cho Selector.");
+            Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập tên cho Selector."));
             return;
         }
 
         if (string.IsNullOrWhiteSpace(txtSelector.Text))
         {
-            Log(ActivityLevel.Warning, "Vui lòng nhập CSS Selector.");
+            Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập CSS Selector."));
             return;
         }
 
@@ -1172,7 +1171,7 @@ public sealed partial class MainForm : Form
         savedSelectors[name] = txtSelector.Text.Trim();
         SaveSelectors();
         RefreshSavedSelectorList(name);
-        Log(ActivityLevel.Success, $"Đã lưu Selector \"{name}\".");
+        Log(ActivityLevel.Success, Localization.F("Đã lưu Selector \"{0}\".", name));
     }
 
     private void BtnDeleteSelector_Click(object? sender, EventArgs e)
@@ -1185,7 +1184,7 @@ public sealed partial class MainForm : Form
         RefreshSavedSelectorList();
         txtSelectorName.Clear();
         txtSelector.Clear();
-        Log(ActivityLevel.Info, $"Đã xóa Selector \"{name}\".");
+        Log(ActivityLevel.Info, Localization.F("Đã xóa Selector \"{0}\".", name));
     }
 
     private void RefreshSavedSelectorList(string? selectName = null)
@@ -1218,7 +1217,7 @@ public sealed partial class MainForm : Form
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không thể tải danh sách Selector đã lưu: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Không thể tải danh sách Selector đã lưu: {0}", DescribeError(exception)));
         }
     }
 
@@ -1230,7 +1229,7 @@ public sealed partial class MainForm : Form
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không thể lưu Selector: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Không thể lưu Selector: {0}", DescribeError(exception)));
         }
     }
 
@@ -1241,18 +1240,18 @@ public sealed partial class MainForm : Form
     {
         if (!browser.IsConnected)
         {
-            Log(ActivityLevel.Warning, "Vui lòng kết nối và chọn tab trước.");
+            Log(ActivityLevel.Warning, Localization.T("Vui lòng kết nối và chọn tab trước."));
             return;
         }
 
         try
         {
             await browser.RefreshPageAsync();
-            Log(ActivityLevel.Success, "Đã làm mới trang web.");
+            Log(ActivityLevel.Success, Localization.T("Đã làm mới trang web."));
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không thể làm mới trang web: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Không thể làm mới trang web: {0}", DescribeError(exception)));
         }
     }
 
@@ -1260,26 +1259,26 @@ public sealed partial class MainForm : Form
     {
         if (IsAutoClickRunning || isStarting)
         {
-            Log(ActivityLevel.Info, "Chạy thao tác đang chạy.");
+            Log(ActivityLevel.Info, Localization.T("Chạy thao tác đang chạy."));
             return;
         }
 
         if (isPickingElement)
         {
-            Log(ActivityLevel.Warning, "Hãy hoàn tất hoặc hủy thao tác chọn phần tử trước.");
+            Log(ActivityLevel.Warning, Localization.T("Hãy hoàn tất hoặc hủy thao tác chọn phần tử trước."));
             return;
         }
 
         if (!browser.IsConnected)
         {
-            Log(ActivityLevel.Warning, "Hãy quét tab và chọn một tab trước.");
+            Log(ActivityLevel.Warning, Localization.T("Hãy quét tab và chọn một tab trước."));
             return;
         }
 
         string selector = txtSelector.Text.Trim();
         if (selector.Length == 0)
         {
-            Log(ActivityLevel.Warning, "Vui lòng nhập CSS Selector trước khi bắt đầu.");
+            Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập CSS Selector trước khi bắt đầu."));
             return;
         }
 
@@ -1300,7 +1299,7 @@ public sealed partial class MainForm : Form
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không thể bắt đầu: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Không thể bắt đầu: {0}", DescribeError(exception)));
             UpdateConnectionStatus();
             return;
         }
@@ -1319,17 +1318,17 @@ public sealed partial class MainForm : Form
 
         if (!validation.IsValid)
         {
-            ShowSelectorValidation(false, "Selector không hợp lệ. Vui lòng kiểm tra lại.");
+            ShowSelectorValidation(false, Localization.T("Selector không hợp lệ. Vui lòng kiểm tra lại."));
             return;
         }
 
         if (validation.MatchCount == 0)
-            Log(ActivityLevel.Warning, $"Chưa thấy phần tử. Sẽ chờ tối đa {numWaitTimeout.Value} giây.");
+            Log(ActivityLevel.Warning, Localization.F("Chưa thấy phần tử. Sẽ chờ tối đa {0} giây.", numWaitTimeout.Value));
 
         if (IsKeywordWatcherRunning && string.Equals(selector, keywordSelector, StringComparison.Ordinal))
         {
             Log(ActivityLevel.Warning,
-                "Lưu ý: 'Click khi có từ khóa' đang dùng cùng Selector này. Hai chức năng sẽ cùng bấm vào một nút.");
+                Localization.T("Lưu ý: 'Click khi có từ khóa' đang dùng cùng Selector này. Hai chức năng sẽ cùng bấm vào một nút."));
         }
 
         var cancellation = new CancellationTokenSource();
@@ -1340,7 +1339,7 @@ public sealed partial class MainForm : Form
         UpdateControlStates();
         UpdateAutoState();
 
-        Log(ActivityLevel.Process, "Chạy thao tác: bắt đầu bấm Selector theo chu kỳ. Bấm Dừng để kết thúc.");
+        Log(ActivityLevel.Process, Localization.T("Chạy thao tác: bắt đầu bấm Selector theo chu kỳ. Bấm Dừng để kết thúc."));
 
         Task runTask = autoClickService.RunAsync(
             selector,
@@ -1360,11 +1359,11 @@ public sealed partial class MainForm : Form
         {
             NotificationService.Warning(
                 Localization.T("Chạy thao tác đã dừng"),
-                "Không thấy Selector hiển thị trong thời gian chờ.");
+                Localization.T("Không thấy Selector hiển thị trong thời gian chờ."));
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Chạy thao tác đã dừng do lỗi: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Chạy thao tác đã dừng do lỗi: {0}", DescribeError(exception)));
             NotificationService.Error(
                 Localization.T("Đã dừng do lỗi"),
                 DescribeError(exception));
@@ -1384,7 +1383,7 @@ public sealed partial class MainForm : Form
             UpdateControlStates();
             UpdateAutoState();
 
-            Log(ActivityLevel.Info, "Chạy thao tác đã dừng.");
+            Log(ActivityLevel.Info, Localization.T("Chạy thao tác đã dừng."));
         }
     }
 
@@ -1393,7 +1392,7 @@ public sealed partial class MainForm : Form
         if (!IsAutoClickRunning)
             return;
 
-        Log(ActivityLevel.Info, "Đang dừng chạy thao tác...");
+        Log(ActivityLevel.Info, Localization.T("Đang dừng chạy thao tác..."));
         autoClickCancellation?.Cancel();
     }
 
@@ -1401,25 +1400,25 @@ public sealed partial class MainForm : Form
     {
         if (!CanClickOnceNow)
         {
-            Log(ActivityLevel.Warning, "Đang có thao tác khác. Vui lòng chờ thao tác hiện tại hoàn tất.");
+            Log(ActivityLevel.Warning, Localization.T("Đang có thao tác khác. Vui lòng chờ thao tác hiện tại hoàn tất."));
             return;
         }
 
         if (string.IsNullOrWhiteSpace(txtSelector.Text))
         {
-            Log(ActivityLevel.Warning, "Vui lòng nhập Selector trước khi Click.");
+            Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập Selector trước khi Click."));
             return;
         }
 
         if (!browser.IsConnected)
         {
-            Log(ActivityLevel.Warning, "Hãy quét tab và chọn một tab trước.");
+            Log(ActivityLevel.Warning, Localization.T("Hãy quét tab và chọn một tab trước."));
             return;
         }
 
         if (!await clickGate.WaitAsync(0))
         {
-            Log(ActivityLevel.Warning, "Đang có click khác.");
+            Log(ActivityLevel.Warning, Localization.T("Đang có click khác."));
             return;
         }
 
@@ -1428,7 +1427,7 @@ public sealed partial class MainForm : Form
         manualClickCancellation = cancellation;
         try
         {
-            Log(ActivityLevel.Process, $"Đang chờ Selector tối đa {numWaitTimeout.Value} giây...");
+            Log(ActivityLevel.Process, Localization.F("Đang chờ Selector tối đa {0} giây...", numWaitTimeout.Value));
             Task clickTask = browser.ClickAsync(
                 txtSelector.Text,
                 GetWaitTimeoutMilliseconds(),
@@ -1438,22 +1437,22 @@ public sealed partial class MainForm : Form
             await clickTask;
 
             RecordClick(true);
-            Log(ActivityLevel.Success, "Click thành công.");
+            Log(ActivityLevel.Success, Localization.T("Click thành công."));
         }
         catch (OperationCanceledException)
         {
             if (!shutdownInProgress)
-                Log(ActivityLevel.Info, "Đã hủy thao tác Click.");
+                Log(ActivityLevel.Info, Localization.T("Đã hủy thao tác Click."));
         }
         catch (SelectorWaitTimeoutException)
         {
             RecordClick(false);
-            Log(ActivityLevel.Warning, "Không tìm thấy phần tử trong thời gian chờ. Hãy kiểm tra Selector và thử lại.");
+            Log(ActivityLevel.Warning, Localization.T("Không tìm thấy phần tử trong thời gian chờ. Hãy kiểm tra Selector và thử lại."));
         }
         catch (Exception exception)
         {
             RecordClick(false);
-            Log(ActivityLevel.Error, "Click lỗi: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Click lỗi: {0}", DescribeError(exception)));
         }
         finally
         {
@@ -1488,7 +1487,7 @@ public sealed partial class MainForm : Form
         if (IsKeywordWatcherRunning)
         {
             SetKeywordToggle(false);
-            Log(ActivityLevel.Warning, "Click khi có từ khóa đang tắt. Hãy thử bật lại sau giây lát.");
+            Log(ActivityLevel.Warning, Localization.T("Click khi có từ khóa đang tắt. Hãy thử bật lại sau giây lát."));
             return;
         }
 
@@ -1497,13 +1496,13 @@ public sealed partial class MainForm : Form
 
         string? problem = null;
         if (isStarting || isPickingElement || isOpeningBrowser || isScanningTabs)
-            problem = "Đang có thao tác khác. Hãy thử lại sau.";
+            problem = Localization.T("Đang có thao tác khác. Hãy thử lại sau.");
         else if (!browser.IsConnected)
-            problem = "Hãy mở trình duyệt, quét tab và chọn một tab trước.";
+            problem = Localization.T("Hãy mở trình duyệt, quét tab và chọn một tab trước.");
         else if (selector.Length == 0)
-            problem = "Vui lòng nhập Selector (nút 'Video tiếp theo') trước khi bật chức năng này.";
+            problem = Localization.T("Vui lòng nhập Selector (nút 'Video tiếp theo') trước khi bật chức năng này.");
         else if (keywords.Count == 0)
-            problem = "Vui lòng nhập ít nhất một từ khóa (cách nhau bằng dấu phẩy).";
+            problem = Localization.T("Vui lòng nhập ít nhất một từ khóa (cách nhau bằng dấu phẩy).");
 
         if (problem != null)
         {
@@ -1518,7 +1517,7 @@ public sealed partial class MainForm : Form
 
         SetKeywordState(KeywordState.Waiting);
         UpdateControlStates();
-        Log(ActivityLevel.Process, $"Click khi có từ khóa: đã bật. Từ khóa: {string.Join(", ", keywords)}.");
+        Log(ActivityLevel.Process, Localization.F("Click khi có từ khóa: đã bật. Từ khóa: {0}.", string.Join(", ", keywords)));
 
         keywordWatcherTask = RunKeywordWatcherSafeAsync(selector, keywords, cancellation);
     }
@@ -1551,7 +1550,7 @@ public sealed partial class MainForm : Form
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Click khi có từ khóa đã dừng do lỗi: " + DescribeError(exception));
+            Log(ActivityLevel.Error, Localization.F("Click khi có từ khóa đã dừng do lỗi: {0}", DescribeError(exception)));
             NotificationService.Error(
                 Localization.T("Click khi có từ khóa đã dừng"),
                 DescribeError(exception));
@@ -1566,7 +1565,7 @@ public sealed partial class MainForm : Form
             SetKeywordToggle(false);
             UpdateControlStates();
             UpdateConnectionStatus();
-            Log(ActivityLevel.Info, "Click khi có từ khóa: đã tắt.");
+            Log(ActivityLevel.Info, Localization.T("Click khi có từ khóa: đã tắt."));
         }
     }
 
@@ -1610,8 +1609,18 @@ public sealed partial class MainForm : Form
         themeTimer.Start();
 
         SaveSettings(settings => settings.DarkMode = themeTargetDark);
+        UpdateDarkModeLabel(themeTargetDark);
 
-        Log(ActivityLevel.Info, themeTargetDark ? "Đã chuyển sang giao diện tối." : "Đã chuyển sang giao diện sáng.");
+        Log(ActivityLevel.Info, Localization.T(themeTargetDark
+            ? "Đã chuyển sang giao diện tối."
+            : "Đã chuyển sang giao diện sáng."));
+    }
+
+    private void UpdateDarkModeLabel(bool dark)
+    {
+        string label = dark ? "Chế độ tối" : "Chế độ sáng";
+        toggleDarkMode.Tag = label;
+        toggleDarkMode.Text = Localization.T(label);
     }
 
     private void ThemeTimer_Tick(object? sender, EventArgs e)
@@ -1744,7 +1753,7 @@ public sealed partial class MainForm : Form
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Warning, "Một tác vụ nền kết thúc khi đóng ứng dụng: " + DescribeError(exception));
+            Log(ActivityLevel.Warning, Localization.F("Một tác vụ nền kết thúc khi đóng ứng dụng: {0}", DescribeError(exception)));
         }
         finally
         {
@@ -1754,7 +1763,7 @@ public sealed partial class MainForm : Form
             }
             catch (Exception exception)
             {
-                Log(ActivityLevel.Warning, "Không thể đóng hoàn toàn kết nối trình duyệt: " + DescribeError(exception));
+                Log(ActivityLevel.Warning, Localization.F("Không thể đóng hoàn toàn kết nối trình duyệt: {0}", DescribeError(exception)));
             }
 
             if (hotkeysRegistered)
