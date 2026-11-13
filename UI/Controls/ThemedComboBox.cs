@@ -74,11 +74,13 @@ public sealed class ThemedComboBox : Control
     protected override bool IsInputKey(Keys keyData) =>
         keyData is Keys.Up or Keys.Down || base.IsInputKey(keyData);
 
+    protected override void OnPaintBackground(PaintEventArgs e) =>
+        UiTheme.ClearBackdrop(this, e.Graphics);
+
     protected override void OnPaint(PaintEventArgs e)
     {
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.Clear(UiTheme.Surface);
 
         var rect = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
         using (GraphicsPath path = UiDrawing.RoundedRectangle(rect, CornerRadius))
@@ -228,7 +230,12 @@ internal sealed class ComboPopup : Form
     private readonly int rowHeight;
     private readonly Action<int> onPick;
     private readonly ThemedScrollBar scrollBar;
+    private readonly System.Windows.Forms.Timer animationTimer = new() { Interval = 15 };
     private int hoverIndex = -1;
+    private int targetHeight;
+    private long animationStartedAt;
+
+    private const int AnimationMilliseconds = 150;
 
     public ComboPopup(
         IReadOnlyList<object> items,
@@ -282,6 +289,47 @@ internal sealed class ComboPopup : Form
             scrollBar.SetValueSilently(selectedIndex * rowHeight);
             Invalidate();
         }
+
+        animationStartedAt = Environment.TickCount64;
+        animationTimer.Tick += (_, _) => StepAnimation();
+        animationTimer.Start();
+    }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+
+        targetHeight = Height;
+        Height = 1;
+        Opacity = 0.15;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            animationTimer.Dispose();
+
+        base.Dispose(disposing);
+    }
+
+    private void StepAnimation()
+    {
+        float progress = Math.Clamp(
+            (Environment.TickCount64 - animationStartedAt) / (float)AnimationMilliseconds,
+            0f,
+            1f);
+
+        float eased = 1f - MathF.Pow(1f - progress, 3f);
+
+        Height = Math.Max(1, (int)Math.Round(targetHeight * eased));
+        Opacity = 0.15 + 0.85 * eased;
+
+        if (progress < 1f)
+            return;
+
+        animationTimer.Stop();
+        Height = targetHeight;
+        Opacity = 1;
     }
 
     protected override void OnPaint(PaintEventArgs e)
