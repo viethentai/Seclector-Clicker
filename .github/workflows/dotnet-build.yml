@@ -1,0 +1,31 @@
+name: .NET 10 build
+
+on:
+  push:
+    branches:
+      - security-hardening
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore "./Auto Click Selector.csproj"
+
+      - name: Build Release
+        run: dotnet build "./Auto Click Selector.csproj" --configuration Release --no-restore

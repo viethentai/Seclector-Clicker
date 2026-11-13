@@ -29,6 +29,13 @@ public sealed partial class MainForm : Form
 
     private CancellationTokenSource? autoClickCancellation;
     private CancellationTokenSource? keywordCancellation;
+    private TaskCompletionSource<bool>? startValidationCompletion;
+    private Task? autoClickTask;
+    private Task? keywordWatcherTask;
+    private Task? manualClickTask;
+    private CancellationTokenSource? manualClickCancellation;
+    private bool shutdownInProgress;
+    private bool shutdownComplete;
     private string keywordSelector = string.Empty;
 
     private Palette? themeFrom;
@@ -721,8 +728,14 @@ public sealed partial class MainForm : Form
             return;
         }
 
+        if (shutdownInProgress)
+            return;
+
         // Đặt cờ trước khi await để không mở thêm vòng lặp khi người dùng bấm dồn.
         isStarting = true;
+        var validationCompletion = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        startValidationCompletion = validationCompletion;
         UpdateControlStates();
         UpdateAutoState();
 
@@ -740,9 +753,15 @@ public sealed partial class MainForm : Form
         finally
         {
             isStarting = false;
+            if (ReferenceEquals(startValidationCompletion, validationCompletion))
+                startValidationCompletion = null;
+            validationCompletion.TrySetResult(true);
             UpdateControlStates();
             UpdateAutoState();
         }
+
+        if (shutdownInProgress)
+            return;
 
         if (!validation.IsValid)
         {
@@ -769,13 +788,16 @@ public sealed partial class MainForm : Form
 
         Log(ActivityLevel.Process, "Chạy thao tác: bắt đầu bấm Selector theo chu kỳ. Bấm Dừng để kết thúc.");
 
+        Task runTask = autoClickService.RunAsync(
+            selector,
+            GetIntervalMilliseconds(),
+            GetWaitTimeoutMilliseconds(),
+            cancellation.Token);
+        autoClickTask = runTask;
+
         try
         {
-            await autoClickService.RunAsync(
-                selector,
-                GetIntervalMilliseconds(),
-                GetWaitTimeoutMilliseconds(),
-                cancellation.Token);
+            await runTask;
         }
         catch (OperationCanceledException)
         {
@@ -791,6 +813,8 @@ public sealed partial class MainForm : Form
         }
         finally
         {
+            if (ReferenceEquals(autoClickTask, runTask))
+                autoClickTask = null;
             if (ReferenceEquals(autoClickCancellation, cancellation))
                 autoClickCancellation = null;
             cancellation.Dispose();
@@ -836,13 +860,25 @@ public sealed partial class MainForm : Form
         }
 
         btnClick.Enabled = false;
+        var cancellation = new CancellationTokenSource();
+        manualClickCancellation = cancellation;
         try
         {
             Log(ActivityLevel.Process, $"Đang chờ Selector tối đa {numWaitTimeout.Value} giây...");
-            await browser.ClickAsync(txtSelector.Text, GetWaitTimeoutMilliseconds());
+            Task clickTask = browser.ClickAsync(
+                txtSelector.Text,
+                GetWaitTimeoutMilliseconds(),
+                cancellation.Token);
+            manualClickTask = clickTask;
+            await clickTask;
 
             RecordClick(true);
             Log(ActivityLevel.Success, "Click thành công.");
+        }
+        catch (OperationCanceledException)
+        {
+            if (!shutdownInProgress)
+                Log(ActivityLevel.Info, "Đã hủy thao tác Click.");
         }
         catch (SelectorWaitTimeoutException)
         {
@@ -856,6 +892,10 @@ public sealed partial class MainForm : Form
         }
         finally
         {
+            manualClickTask = null;
+            if (ReferenceEquals(manualClickCancellation, cancellation))
+                manualClickCancellation = null;
+            cancellation.Dispose();
             clickGate.Release();
             UpdateControlStates();
         }
@@ -878,6 +918,12 @@ public sealed partial class MainForm : Form
 
     private void StartKeywordWatcher()
     {
+        if (shutdownInProgress)
+        {
+            SetKeywordToggle(false);
+            return;
+        }
+
         if (IsKeywordWatcherRunning)
         {
             // Đang tắt từ lần trước; không mở thêm vòng lặp song song.
@@ -914,7 +960,7 @@ public sealed partial class MainForm : Form
         UpdateControlStates();
         Log(ActivityLevel.Process, $"Click khi có từ khóa: đã bật. Từ khóa: {string.Join(", ", keywords)}.");
 
-        _ = RunKeywordWatcherSafeAsync(selector, keywords, cancellation);
+        keywordWatcherTask = RunKeywordWatcherSafeAsync(selector, keywords, cancellation);
     }
 
     private void StopKeywordWatcher()
@@ -1098,26 +1144,73 @@ public sealed partial class MainForm : Form
         ApplyTitleBarTheme();
     }
 
-    protected override void OnFormClosed(FormClosedEventArgs e)
+    protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        base.OnFormClosing(e);
+        if (e.Cancel || shutdownComplete)
+            return;
+
+        // Giữ message loop hoạt động trong lúc các tác vụ nền kết thúc.
+        e.Cancel = true;
+        if (shutdownInProgress)
+            return;
+
+        shutdownInProgress = true;
+        Enabled = false;
         autoClickCancellation?.Cancel();
         keywordCancellation?.Cancel();
+        manualClickCancellation?.Cancel();
         statsTimer.Stop();
         themeTimer.Stop();
-        themeTimer.Dispose();
 
-        // Vòng lặp thông điệp kết thúc ngay sau form chính, nên không await ở đây.
-        // Chạy dọn dẹp trên thread pool và chờ tối đa 3 giây thay vì chặn UI.
+        _ = CompleteShutdownAsync();
+    }
+
+    private async Task CompleteShutdownAsync()
+    {
         try
         {
-            Task.Run(() => browser.StopAsync()).Wait(TimeSpan.FromSeconds(3));
-        }
-        catch
-        {
-            // Bỏ qua: ứng dụng đang đóng.
-        }
+            // Chờ thao tác kiểm tra Selector đang dở; nó có thể khởi chạy Auto Click
+            // ngay sau khi hoàn tất, vì vậy hủy token lần nữa bên dưới.
+            Task? validationTask = startValidationCompletion?.Task;
+            if (validationTask != null)
+                await validationTask;
 
-        base.OnFormClosed(e);
+            autoClickCancellation?.Cancel();
+            keywordCancellation?.Cancel();
+            manualClickCancellation?.Cancel();
+
+            Task[] activeTasks = new[] { autoClickTask, keywordWatcherTask, manualClickTask }
+                .Where(task => task != null)
+                .Cast<Task>()
+                .Distinct()
+                .ToArray();
+
+            if (activeTasks.Length > 0)
+                await Task.WhenAll(activeTasks);
+        }
+        catch (Exception exception)
+        {
+            // Tiếp tục giải phóng kết nối ngay cả khi một tác vụ nền kết thúc do lỗi.
+            Log(ActivityLevel.Warning, "Một tác vụ nền kết thúc khi đóng ứng dụng: " + DescribeError(exception));
+        }
+        finally
+        {
+            try
+            {
+                await browser.StopAsync();
+            }
+            catch (Exception exception)
+            {
+                Log(ActivityLevel.Warning, "Không thể đóng hoàn toàn kết nối trình duyệt: " + DescribeError(exception));
+            }
+
+            themeTimer.Dispose();
+            shutdownComplete = true;
+
+            if (!IsDisposed && IsHandleCreated)
+                BeginInvoke((Action)Close);
+        }
     }
 
     [DllImport("dwmapi.dll")]

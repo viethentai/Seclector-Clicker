@@ -1,6 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Net.Sockets;
+using System.Net.Http;
 using System.Text.Json;
 
 namespace AutoClickSelector.Core;
@@ -32,17 +32,34 @@ internal static class BrowserLauncher
         File.WriteAllText(file, JsonSerializer.Serialize(new BrowserSettings(path)));
     }
 
-    /// <summary>Kiểm tra cổng debug có đang nhận kết nối không (không gửi dữ liệu gì).</summary>
+    /// <summary>Chỉ chấp nhận endpoint DevTools hợp lệ trên loopback, không chỉ TCP mở.</summary>
     public static async Task<bool> IsDebugPortOpenAsync(int port = DebugPort)
     {
-        using var client = new TcpClient();
+        if (port is < 1 or > 65535)
+            return false;
+
         try
         {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(400));
-            await client.ConnectAsync("127.0.0.1", port, timeout.Token);
-            return client.Connected;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+            string json = await client.GetStringAsync($"http://127.0.0.1:{port}/json/version", timeout.Token);
+            using JsonDocument document = JsonDocument.Parse(json);
+
+            if (!document.RootElement.TryGetProperty("Browser", out JsonElement browser)
+                || browser.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(browser.GetString()))
+                return false;
+
+            if (!document.RootElement.TryGetProperty("webSocketDebuggerUrl", out JsonElement socket)
+                || socket.ValueKind != JsonValueKind.String
+                || !Uri.TryCreate(socket.GetString(), UriKind.Absolute, out Uri? socketUri))
+                return false;
+
+            return (socketUri.Scheme == "ws" || socketUri.Scheme == "wss")
+                && socketUri.IsLoopback;
         }
-        catch (Exception)
+        catch (Exception exception) when (
+            exception is HttpRequestException or TaskCanceledException or JsonException or UriFormatException)
         {
             return false;
         }
@@ -109,7 +126,7 @@ internal static class BrowserLauncher
         var startInfo = new ProcessStartInfo
         {
             FileName = exePath,
-            Arguments = $"--remote-debugging-port={port}",
+            Arguments = $"--remote-debugging-address=127.0.0.1 --remote-debugging-port={port}",
             UseShellExecute = false,
             WorkingDirectory = Path.GetDirectoryName(exePath) ?? string.Empty
         };

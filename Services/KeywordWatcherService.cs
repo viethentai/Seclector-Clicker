@@ -52,10 +52,10 @@ public sealed class KeywordWatcherService
             try
             {
                 var ad = await browser.FindAdOnScreenAsync(keywords);
-                consecutiveFailures = 0;
 
                 if (ad is null)
                 {
+                    consecutiveFailures = 0;
                     consecutiveSkips = 0;
                     setState(KeywordState.Waiting);
 
@@ -94,6 +94,7 @@ public sealed class KeywordWatcherService
                         clickGate.Release();
                     }
 
+                    consecutiveFailures = 0;
                     consecutiveSkips++;
                     totalSkipped++;
                     recordClick(true);
