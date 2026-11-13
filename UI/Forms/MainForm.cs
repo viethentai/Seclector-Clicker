@@ -618,10 +618,14 @@ public sealed partial class MainForm : Form
             if (!await browser.BringBrowserToForegroundAsync())
                 Log(ActivityLevel.Warning, "Không tự chuyển được sang trình duyệt. Hãy tự mở tab đó rồi bấm vào phần tử.");
 
+            if (shutdownInProgress)
+                return;
+
             string? selector = await browser.PickElementAsync();
             if (string.IsNullOrWhiteSpace(selector))
             {
-                Log(ActivityLevel.Info, "Đã hủy chọn phần tử.");
+                if (!shutdownInProgress)
+                    Log(ActivityLevel.Info, "Đã hủy chọn phần tử.");
                 return;
             }
 
