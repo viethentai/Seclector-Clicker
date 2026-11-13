@@ -173,10 +173,14 @@ public sealed class BrowserController
             await Task.Delay(100, cancellationToken);
         }
 
+        // Playwright click có thể chờ actionability (scroll/overlay/animation).
+        // Giới hạn riêng thao tác click để lệnh Dừng không bị treo hàng phút.
+        cancellationToken.ThrowIfCancellationRequested();
         await element.ClickAsync(new LocatorClickOptions
         {
-            Timeout = Math.Max(3000, waitMilliseconds)
+            Timeout = Math.Clamp(waitMilliseconds, 1, 5000)
         });
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     /// <summary>
