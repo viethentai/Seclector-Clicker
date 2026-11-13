@@ -760,6 +760,9 @@ public sealed partial class MainForm : Form
             UpdateAutoState();
         }
 
+        if (shutdownInProgress)
+            return;
+
         if (!validation.IsValid)
         {
             ShowSelectorValidation(false, "Selector không hợp lệ. Vui lòng kiểm tra lại.");
