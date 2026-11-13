@@ -180,7 +180,6 @@ public sealed class BrowserController
         {
             Timeout = Math.Clamp(waitMilliseconds, 1, 5000)
         });
-        cancellationToken.ThrowIfCancellationRequested();
     }
 
     /// <summary>
