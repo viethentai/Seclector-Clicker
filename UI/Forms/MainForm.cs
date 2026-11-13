@@ -214,7 +214,7 @@ public sealed partial class MainForm : Form
 
     private void StartTrackedBrowserOperation(Func<Task> operation)
     {
-        if (shutdownInProgress)
+        if (shutdownInProgress || IsBusy)
             return;
 
         Task task = operation();
@@ -909,6 +909,12 @@ public sealed partial class MainForm : Form
 
     private async void BtnClick_Click(object? sender, EventArgs e)
     {
+        if (IsBusy)
+        {
+            Log(ActivityLevel.Warning, "Đang có thao tác khác. Vui lòng chờ thao tác hiện tại hoàn tất.");
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(txtSelector.Text))
         {
             Log(ActivityLevel.Warning, "Vui lòng nhập Selector trước khi Click.");
@@ -938,6 +944,7 @@ public sealed partial class MainForm : Form
                 GetWaitTimeoutMilliseconds(),
                 cancellation.Token);
             manualClickTask = clickTask;
+            UpdateControlStates();
             await clickTask;
 
             RecordClick(true);
