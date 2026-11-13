@@ -74,11 +74,13 @@ public sealed class ThemedComboBox : Control
     protected override bool IsInputKey(Keys keyData) =>
         keyData is Keys.Up or Keys.Down || base.IsInputKey(keyData);
 
+    protected override void OnPaintBackground(PaintEventArgs e) =>
+        UiTheme.ClearBackdrop(this, e.Graphics);
+
     protected override void OnPaint(PaintEventArgs e)
     {
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.Clear(UiTheme.Surface);
 
         var rect = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
         using (GraphicsPath path = UiDrawing.RoundedRectangle(rect, CornerRadius))
@@ -228,7 +230,12 @@ internal sealed class ComboPopup : Form
     private readonly int rowHeight;
     private readonly Action<int> onPick;
     private readonly ThemedScrollBar scrollBar;
+    private readonly System.Windows.Forms.Timer animationTimer = new() { Interval = 15 };
     private int hoverIndex = -1;
+    private bool animateContent;
+    private long animationStartedAt;
+
+    private const int AnimationMilliseconds = 150;
 
     public ComboPopup(
         IReadOnlyList<object> items,
@@ -280,8 +287,51 @@ internal sealed class ComboPopup : Form
         if (selectedIndex >= 0)
         {
             scrollBar.SetValueSilently(selectedIndex * rowHeight);
-            Invalidate();
         }
+
+        animateContent = true;
+        animationStartedAt = Environment.TickCount64;
+        animationTimer.Tick += (_, _) => StepAnimation();
+        animationTimer.Start();
+        Invalidate();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            animationTimer.Dispose();
+
+        base.Dispose(disposing);
+    }
+
+    private void StepAnimation()
+    {
+        float progress = Math.Clamp(
+            (Environment.TickCount64 - animationStartedAt) / (float)AnimationMilliseconds,
+            0f,
+            1f);
+
+        if (progress >= 1f)
+        {
+            animateContent = false;
+            animationTimer.Stop();
+        }
+
+        Invalidate();
+    }
+
+    private int ContentSlideOffset()
+    {
+        if (!animateContent)
+            return 0;
+
+        float progress = Math.Clamp(
+            (Environment.TickCount64 - animationStartedAt) / (float)AnimationMilliseconds,
+            0f,
+            1f);
+
+        float eased = 1f - MathF.Pow(1f - progress, 3f);
+        return (int)Math.Round((1f - eased) * rowHeight);
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -291,11 +341,12 @@ internal sealed class ComboPopup : Form
         g.Clear(UiTheme.Surface);
 
         int offset = scrollBar.Value;
+        int slide = ContentSlideOffset();
         int rowWidth = ClientSize.Width - scrollBar.Width - ThemedComboBox.PopupInset * 2;
 
         for (int index = 0; index < items.Count; index++)
         {
-            int y = ThemedComboBox.PopupInset + index * rowHeight - offset;
+            int y = ThemedComboBox.PopupInset + index * rowHeight - offset + slide;
             if (y + rowHeight < 0 || y > ClientSize.Height)
                 continue;
 

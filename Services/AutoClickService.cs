@@ -69,15 +69,15 @@ public sealed class AutoClickService
                     lastClickAt = DateTime.UtcNow;
                     consecutiveFailures = 0;
                     recordClick(true);
-                    log(ActivityLevel.Success, "Đã click Selector.");
+                    log(ActivityLevel.Success, Localization.T("Đã click Selector."));
                 }
             }
             catch (SelectorWaitTimeoutException)
             {
                 recordClick(false);
-                log(ActivityLevel.Warning,
-                    $"Không thấy Selector hiển thị sau {Seconds(waitTimeoutMilliseconds)} giây chờ. " +
-                    "Dừng chạy thao tác để tránh lặp lại.");
+                log(ActivityLevel.Warning, Localization.F(
+                    "Không thấy Selector hiển thị sau {0} giây chờ. Dừng chạy thao tác để tránh lặp lại.",
+                    Seconds(waitTimeoutMilliseconds)));
                 throw;
             }
             catch (OperationCanceledException)
@@ -95,8 +95,11 @@ public sealed class AutoClickService
                 }
                 else
                 {
-                    log(ActivityLevel.Error,
-                        $"Click lỗi ({consecutiveFailures}/{MaxConsecutiveFailures}): {DescribeError(exception)}");
+                    log(ActivityLevel.Error, Localization.F(
+                        "Click lỗi ({0}/{1}): {2}",
+                        consecutiveFailures,
+                        MaxConsecutiveFailures,
+                        DescribeError(exception)));
 
                     if (consecutiveFailures >= MaxConsecutiveFailures)
                         throw;
@@ -108,19 +111,19 @@ public sealed class AutoClickService
             }
 
             if (skippedDuplicate)
-                log(ActivityLevel.Info, "Bỏ qua click trùng: phần tử chưa thay đổi trạng thái.");
+                log(ActivityLevel.Info, Localization.T("Bỏ qua click trùng: phần tử chưa thay đổi trạng thái."));
 
             if (connectionLost)
             {
                 if (recover is null || !await recover(token))
                 {
-                    log(ActivityLevel.Error, "Mất kết nối trình duyệt và không thể kết nối lại.");
-                    throw new InvalidOperationException("Mất kết nối trình duyệt.");
+                    log(ActivityLevel.Error, Localization.T("Mất kết nối trình duyệt và không thể kết nối lại."));
+                    throw new InvalidOperationException(Localization.T("Mất kết nối trình duyệt."));
                 }
 
                 consecutiveFailures = 0;
                 lastSignature = null;
-                log(ActivityLevel.Success, "Đã kết nối lại. Tiếp tục chạy thao tác.");
+                log(ActivityLevel.Success, Localization.T("Đã kết nối lại. Tiếp tục chạy thao tác."));
             }
 
             await Task.Delay(intervalMilliseconds, token);

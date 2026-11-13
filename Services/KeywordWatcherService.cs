@@ -62,7 +62,8 @@ public sealed class KeywordWatcherService
                     if (heartbeat.Elapsed.TotalSeconds >= HeartbeatSeconds)
                     {
                         heartbeat.Restart();
-                        log(ActivityLevel.Process, $"Đang chờ từ khóa... (đã xử lý {totalSkipped} lần)");
+                        log(ActivityLevel.Process, Localization.F(
+                            "Đang chờ từ khóa... (đã xử lý {0} lần)", totalSkipped));
                     }
                 }
                 else
@@ -71,15 +72,17 @@ public sealed class KeywordWatcherService
 
                     if (consecutiveSkips >= MaxConsecutiveSkips)
                     {
-                        log(ActivityLevel.Warning,
-                            $"Đã chuyển video liên tiếp {MaxConsecutiveSkips} lần nhưng vẫn thấy \"{keyword}\" " +
-                            $"({snippet}). Có thể từ khóa trùng với chữ cố định trên trang, hoặc nút " +
-                            "'Video tiếp theo' không hoạt động. Đã dừng chức năng này.");
+                        log(ActivityLevel.Warning, Localization.F(
+                            "Đã chuyển video liên tiếp {0} lần nhưng vẫn thấy \"{1}\" ({2}). Có thể từ khóa trùng với chữ cố định trên trang, hoặc nút 'Video tiếp theo' không hoạt động. Đã dừng chức năng này.",
+                            MaxConsecutiveSkips,
+                            keyword,
+                            snippet));
                         return;
                     }
 
                     setState(KeywordState.Processing);
-                    log(ActivityLevel.Info, $"Phát hiện từ khóa \"{keyword}\" trong \"{snippet}\". Đang chuyển video...");
+                    log(ActivityLevel.Info, Localization.F(
+                        "Phát hiện từ khóa \"{0}\" trong \"{1}\". Đang chuyển video...", keyword, snippet));
 
                     string how;
                     await clickGate.WaitAsync(token);
@@ -96,7 +99,7 @@ public sealed class KeywordWatcherService
                     consecutiveSkips++;
                     totalSkipped++;
                     recordClick(true);
-                    log(ActivityLevel.Success, $"Đã chuyển video bằng {how}.");
+                    log(ActivityLevel.Success, Localization.F("Đã chuyển video bằng {0}.", how));
 
                     setState(KeywordState.Waiting);
                     delay = AfterSkipMilliseconds;
@@ -118,8 +121,11 @@ public sealed class KeywordWatcherService
                 }
                 else
                 {
-                    log(ActivityLevel.Error,
-                        $"Lỗi ({consecutiveFailures}/{MaxConsecutiveFailures}): {DescribeError(exception)}");
+                    log(ActivityLevel.Error, Localization.F(
+                        "Lỗi ({0}/{1}): {2}",
+                        consecutiveFailures,
+                        MaxConsecutiveFailures,
+                        DescribeError(exception)));
 
                     if (consecutiveFailures >= MaxConsecutiveFailures)
                         throw;
@@ -132,13 +138,13 @@ public sealed class KeywordWatcherService
 
                 if (recover is null || !await recover(token))
                 {
-                    log(ActivityLevel.Error,
-                        "Tab hoặc trình duyệt đã đóng và không thể kết nối lại. Hãy quét tab và chọn lại.");
-                    throw new InvalidOperationException("Mất kết nối trình duyệt.");
+                    log(ActivityLevel.Error, Localization.T(
+                        "Tab hoặc trình duyệt đã đóng và không thể kết nối lại. Hãy quét tab và chọn lại."));
+                    throw new InvalidOperationException(Localization.T("Mất kết nối trình duyệt."));
                 }
 
                 consecutiveFailures = 0;
-                log(ActivityLevel.Success, "Đã kết nối lại. Tiếp tục theo dõi từ khóa.");
+                log(ActivityLevel.Success, Localization.T("Đã kết nối lại. Tiếp tục theo dõi từ khóa."));
                 setState(KeywordState.Waiting);
             }
 

@@ -132,7 +132,8 @@ internal static class BrowserLauncher
         using Process? process = Process.Start(startInfo);
 
         if (process == null)
-            throw new InvalidOperationException("Hệ điều hành không khởi chạy được tiến trình trình duyệt.");
+            throw new InvalidOperationException(
+                AutoClickSelector.Services.Localization.T("Hệ điều hành không khởi chạy được tiến trình trình duyệt."));
     }
 
     private static IEnumerable<string> GetCandidates(string family)

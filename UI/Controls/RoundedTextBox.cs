@@ -76,11 +76,13 @@ public sealed class RoundedTextBox : Control
         input.Focus();
     }
 
+    protected override void OnPaintBackground(PaintEventArgs e) =>
+        UiTheme.ClearBackdrop(this, e.Graphics);
+
     protected override void OnPaint(PaintEventArgs e)
     {
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        g.Clear(UiTheme.Surface);
 
         var rect = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
         using GraphicsPath path = UiDrawing.RoundedRectangle(rect, CornerRadius);

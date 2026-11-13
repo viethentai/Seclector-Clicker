@@ -189,10 +189,12 @@ public sealed partial class MainForm
         cmbLanguage.Items.AddRange(new object[] { "Tiếng Việt", "English" });
         cmbLanguage.SelectedIndexChanged += CmbLanguage_SelectedIndexChanged;
 
+        string darkModeLabel = UiTheme.IsDark ? "Chế độ tối" : "Chế độ sáng";
+
         toggleDarkMode = new ToggleSwitch
         {
-            Text = Localization.T("Chế độ tối"),
-            Tag = "Chế độ tối",
+            Text = Localization.T(darkModeLabel),
+            Tag = darkModeLabel,
             Checked = UiTheme.IsDark,
             BackColor = UiTheme.Background,
             Margin = new Padding(0, 8, 0, 0)
