@@ -5,10 +5,6 @@ using AutoClickSelector.UI.Themes;
 
 namespace AutoClickSelector.UI.Components;
 
-/// <summary>
-/// Thẻ có tiêu đề và nền bo góc, dùng để nhóm các điều khiển liên quan.
-/// Các điều khiển được xếp theo từng dòng từ trên xuống.
-/// </summary>
 public sealed class SectionCard : TableLayoutPanel
 {
     private const int CornerRadius = 12;
@@ -30,6 +26,7 @@ public sealed class SectionCard : TableLayoutPanel
         var titleLabel = new Label
         {
             Text = title,
+            Tag = title,
             Font = UiTheme.Heading,
             ForeColor = UiTheme.TextPrimary,
             BackColor = Color.Transparent,
@@ -40,7 +37,6 @@ public sealed class SectionCard : TableLayoutPanel
         AddRowInternal(titleLabel, SizeType.AutoSize, 0);
     }
 
-    /// <summary>Thêm một điều khiển trên một dòng riêng, chiếm hết chiều ngang (nhãn giữ kích thước gốc).</summary>
     public void AddRow(Control control, int bottomGap = DefaultGap)
     {
         control.Margin = new Padding(0, 0, 0, bottomGap);
@@ -61,7 +57,6 @@ public sealed class SectionCard : TableLayoutPanel
         Controls.Add(control, 0, row);
     }
 
-    /// <summary>Thêm nhiều điều khiển cùng một dòng, chia đều chiều ngang.</summary>
     public void AddInline(params Control[] controls)
     {
         var row = new TableLayoutPanel
@@ -91,7 +86,6 @@ public sealed class SectionCard : TableLayoutPanel
         AddRowInternal(row, SizeType.AutoSize, 0);
     }
 
-    /// <summary>Thêm điều khiển chiếm toàn bộ phần chiều cao còn lại (ví dụ khung nhật ký).</summary>
     public void AddFill(Control control)
     {
         control.Dock = DockStyle.Fill;
