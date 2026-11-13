@@ -316,7 +316,8 @@ public sealed class BrowserController
     public async Task CancelPickElementAsync()
     {
         cancelPickRequested = true;
-        if (!isPickingElement || page is not { IsClosed: false } currentPage)
+        IPage? currentPage = page;
+        if (!isPickingElement || currentPage == null || currentPage.IsClosed)
             return;
 
         try
