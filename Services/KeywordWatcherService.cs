@@ -5,10 +5,6 @@ using static AutoClickSelector.Services.TextFormatter;
 
 namespace AutoClickSelector.Services;
 
-/// <summary>
-/// Theo dõi video đang hiển thị. Khi thấy từ khóa (ví dụ quảng cáo) thì bấm Selector
-/// hoặc phím mũi tên xuống để chuyển sang video kế tiếp.
-/// </summary>
 public sealed class KeywordWatcherService
 {
     private const int PollMilliseconds = 500;
@@ -23,19 +19,22 @@ public sealed class KeywordWatcherService
     private readonly Action<ActivityLevel, string> log;
     private readonly Action<bool> recordClick;
     private readonly Action<KeywordState> setState;
+    private readonly Func<CancellationToken, Task<bool>>? recover;
 
     public KeywordWatcherService(
         BrowserController browser,
         SemaphoreSlim clickGate,
         Action<ActivityLevel, string> log,
         Action<bool> recordClick,
-        Action<KeywordState> setState)
+        Action<KeywordState> setState,
+        Func<CancellationToken, Task<bool>>? recover = null)
     {
         this.browser = browser;
         this.clickGate = clickGate;
         this.log = log;
         this.recordClick = recordClick;
         this.setState = setState;
+        this.recover = recover;
     }
 
     public async Task RunAsync(string selector, IReadOnlyList<string> keywords, CancellationToken token)
@@ -48,6 +47,7 @@ public sealed class KeywordWatcherService
         while (!token.IsCancellationRequested)
         {
             int delay = PollMilliseconds;
+            bool connectionLost = false;
 
             try
             {
@@ -69,8 +69,6 @@ public sealed class KeywordWatcherService
                 {
                     var (keyword, snippet) = ad.Value;
 
-                    // Nếu chuyển video liên tiếp mà từ khóa vẫn còn, khả năng cao là từ khóa
-                    // trùng với chữ cố định trên trang hoặc nút chuyển không hoạt động.
                     if (consecutiveSkips >= MaxConsecutiveSkips)
                     {
                         log(ActivityLevel.Warning,
@@ -116,16 +114,32 @@ public sealed class KeywordWatcherService
 
                 if (!browser.IsConnected)
                 {
+                    connectionLost = true;
+                }
+                else
+                {
                     log(ActivityLevel.Error,
-                        "Tab hoặc trình duyệt đã đóng hoặc không còn hoạt động. Hãy quét tab và chọn lại.");
-                    throw;
+                        $"Lỗi ({consecutiveFailures}/{MaxConsecutiveFailures}): {DescribeError(exception)}");
+
+                    if (consecutiveFailures >= MaxConsecutiveFailures)
+                        throw;
+                }
+            }
+
+            if (connectionLost)
+            {
+                setState(KeywordState.Processing);
+
+                if (recover is null || !await recover(token))
+                {
+                    log(ActivityLevel.Error,
+                        "Tab hoặc trình duyệt đã đóng và không thể kết nối lại. Hãy quét tab và chọn lại.");
+                    throw new InvalidOperationException("Mất kết nối trình duyệt.");
                 }
 
-                log(ActivityLevel.Error,
-                    $"Lỗi ({consecutiveFailures}/{MaxConsecutiveFailures}): {DescribeError(exception)}");
-
-                if (consecutiveFailures >= MaxConsecutiveFailures)
-                    throw;
+                consecutiveFailures = 0;
+                log(ActivityLevel.Success, "Đã kết nối lại. Tiếp tục theo dõi từ khóa.");
+                setState(KeywordState.Waiting);
             }
 
             await Task.Delay(delay, token);
