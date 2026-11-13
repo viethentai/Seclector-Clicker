@@ -232,7 +232,7 @@ internal sealed class ComboPopup : Form
     private readonly ThemedScrollBar scrollBar;
     private readonly System.Windows.Forms.Timer animationTimer = new() { Interval = 15 };
     private int hoverIndex = -1;
-    private int targetHeight;
+    private bool animateContent;
     private long animationStartedAt;
 
     private const int AnimationMilliseconds = 150;
@@ -287,21 +287,13 @@ internal sealed class ComboPopup : Form
         if (selectedIndex >= 0)
         {
             scrollBar.SetValueSilently(selectedIndex * rowHeight);
-            Invalidate();
         }
 
+        animateContent = true;
         animationStartedAt = Environment.TickCount64;
         animationTimer.Tick += (_, _) => StepAnimation();
         animationTimer.Start();
-    }
-
-    protected override void OnLoad(EventArgs e)
-    {
-        base.OnLoad(e);
-
-        targetHeight = Height;
-        Height = 1;
-        Opacity = 0.15;
+        Invalidate();
     }
 
     protected override void Dispose(bool disposing)
@@ -319,17 +311,27 @@ internal sealed class ComboPopup : Form
             0f,
             1f);
 
+        if (progress >= 1f)
+        {
+            animateContent = false;
+            animationTimer.Stop();
+        }
+
+        Invalidate();
+    }
+
+    private int ContentSlideOffset()
+    {
+        if (!animateContent)
+            return 0;
+
+        float progress = Math.Clamp(
+            (Environment.TickCount64 - animationStartedAt) / (float)AnimationMilliseconds,
+            0f,
+            1f);
+
         float eased = 1f - MathF.Pow(1f - progress, 3f);
-
-        Height = Math.Max(1, (int)Math.Round(targetHeight * eased));
-        Opacity = 0.15 + 0.85 * eased;
-
-        if (progress < 1f)
-            return;
-
-        animationTimer.Stop();
-        Height = targetHeight;
-        Opacity = 1;
+        return (int)Math.Round((1f - eased) * rowHeight);
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -339,11 +341,12 @@ internal sealed class ComboPopup : Form
         g.Clear(UiTheme.Surface);
 
         int offset = scrollBar.Value;
+        int slide = ContentSlideOffset();
         int rowWidth = ClientSize.Width - scrollBar.Width - ThemedComboBox.PopupInset * 2;
 
         for (int index = 0; index < items.Count; index++)
         {
-            int y = ThemedComboBox.PopupInset + index * rowHeight - offset;
+            int y = ThemedComboBox.PopupInset + index * rowHeight - offset + slide;
             if (y + rowHeight < 0 || y > ClientSize.Height)
                 continue;
 
