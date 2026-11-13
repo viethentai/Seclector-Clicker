@@ -1,3 +1,4 @@
+using AutoClickSelector.Services;
 using AutoClickSelector.UI.Forms;
 
 namespace AutoClickSelector;
@@ -12,6 +13,7 @@ internal static class Program
         if (args.Contains("--selftest"))
         {
             string stepFile = Path.Combine(AppContext.BaseDirectory, "selftest-step.txt");
+
             try
             {
                 File.WriteAllText(stepFile, "start\n");
@@ -40,6 +42,7 @@ internal static class Program
             catch (Exception exception)
             {
                 Environment.ExitCode = 1;
+
                 try
                 {
                     File.AppendAllText(stepFile, "FAILED: " + exception + "\n");
@@ -53,9 +56,9 @@ internal static class Program
         }
 
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-        Application.ThreadException += (_, args) => ReportFatal(args.Exception);
-        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
-            ReportFatal(args.ExceptionObject as Exception);
+        Application.ThreadException += (_, eventArgs) => ReportFatal(eventArgs.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
+            ReportFatal(eventArgs.ExceptionObject as Exception);
 
         Application.Run(new MainForm());
     }
@@ -63,8 +66,9 @@ internal static class Program
     private static void ReportFatal(Exception? exception)
     {
         string detail = exception?.GetBaseException().Message
-            ?? AutoClickSelector.Services.Localization.T("Không có thông tin chi tiết.");
-        string text = AutoClickSelector.Services.Localization.F(
+            ?? Localization.T("Không có thông tin chi tiết.");
+
+        string text = Localization.F(
             "Ứng dụng gặp lỗi không mong đợi:\n\n{0}\n\nNếu lỗi lặp lại, hãy gửi nội dung này cho nhà phát triển.",
             detail);
 
