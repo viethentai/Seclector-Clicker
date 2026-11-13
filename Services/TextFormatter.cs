@@ -32,18 +32,21 @@ public static class TextFormatter
     public static string DescribeBrowserError(Exception exception)
     {
         string detail = exception.GetBaseException().Message.Trim();
+
         if (string.IsNullOrWhiteSpace(detail))
-            detail = "Không có thông tin chi tiết.";
+            detail = Localization.T("Không có thông tin chi tiết.");
 
         if (detail.Contains(BrowserLauncher.DebugPort.ToString(), StringComparison.OrdinalIgnoreCase) ||
             detail.Contains("ECONNREFUSED", StringComparison.OrdinalIgnoreCase) ||
             detail.Contains("connectovercdp", StringComparison.OrdinalIgnoreCase))
         {
-            return "Không kết nối được với trình duyệt. Hãy bấm 'Mở trình duyệt' " +
-                   $"(hoặc mở trình duyệt với cổng {BrowserLauncher.DebugPort}) rồi quét lại. Chi tiết: " + detail;
+            return Localization.F(
+                "Không kết nối được với trình duyệt. Hãy bấm 'Mở trình duyệt' (hoặc mở trình duyệt với cổng {0}) rồi quét lại. Chi tiết: {1}",
+                BrowserLauncher.DebugPort,
+                detail);
         }
 
-        return "Lỗi trình duyệt: " + detail;
+        return Localization.F("Lỗi trình duyệt: {0}", detail);
     }
 
     public static string Seconds(int milliseconds) =>
