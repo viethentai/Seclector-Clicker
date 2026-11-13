@@ -9,7 +9,6 @@ using static AutoClickSelector.Services.TextFormatter;
 
 namespace AutoClickSelector.UI.Forms;
 
-/// <summary>Cửa sổ chính: nối giao diện với các dịch vụ thao tác và lưu trạng thái.</summary>
 public sealed partial class MainForm : Form
 {
     private const string AppTitle = "Auto Click Selector";
@@ -27,6 +26,16 @@ public sealed partial class MainForm : Form
     private readonly AutoClickService autoClickService;
     private readonly KeywordWatcherService keywordWatcher;
     private readonly HashSet<Task> activeBrowserOperations = [];
+    private readonly System.Windows.Forms.Timer settingsSaveTimer = new() { Interval = 700 };
+    private readonly List<(Control Control, string Text)> localizedToolTips = [];
+    private readonly List<(RoundedTextBox Box, string Text)> localizedPlaceholders = [];
+
+    private NotifyIcon? trayIcon;
+    private bool exitRequested;
+    private bool hotkeysRegistered;
+    private bool isLoadingSettings;
+    private string lastTabUrl = string.Empty;
+    private KeywordState keywordState = KeywordState.Off;
 
     private CancellationTokenSource? autoClickCancellation;
     private CancellationTokenSource? keywordCancellation;
@@ -58,11 +67,24 @@ public sealed partial class MainForm : Form
 
     public MainForm()
     {
-        UiTheme.SetDark(AppPreferences.LoadDarkMode());
+        AppSettings settings = SettingsStore.Current;
+        UiTheme.SetDark(settings.DarkMode);
+        Localization.SetLanguage(settings.Language);
         CreateInterface();
+        ApplySettingsToControls(settings);
+        lastTabUrl = settings.LastTabUrl;
+        CreateTrayIcon();
 
-        autoClickService = new AutoClickService(browser, clickGate, Log, RecordClick);
-        keywordWatcher = new KeywordWatcherService(browser, clickGate, Log, RecordClick, SetKeywordState);
+        settingsSaveTimer.Tick += SettingsSaveTimer_Tick;
+
+        autoClickService = new AutoClickService(
+            browser,
+            clickGate,
+            Log,
+            RecordClick,
+            TryRecoverBrowserAsync);
+        keywordWatcher = new KeywordWatcherService(
+            browser, clickGate, Log, RecordClick, SetKeywordState, TryRecoverBrowserAsync);
 
         statsTimer.Tick += (_, _) => UpdateStatistics();
         themeTimer.Tick += ThemeTimer_Tick;
@@ -75,12 +97,21 @@ public sealed partial class MainForm : Form
         UpdateControlStates();
 
         Log(ActivityLevel.Info,
-            "Sẵn sàng. Bấm \"Mở trình duyệt\" để mở CốC CốC, hoặc \"Quét tab\" nếu CốC CốC đã mở sẵn với cổng kết nối.");
+            "Sẵn sàng. Bấm \"Mở trình duyệt\" để mở trình duyệt, hoặc \"Quét tab\" nếu trình duyệt đã mở sẵn với cổng kết nối.");
     }
 
     private bool IsAutoClickRunning => autoClickCancellation != null;
 
     private bool IsKeywordWatcherRunning => keywordCancellation != null;
+
+    private bool CanClickOnceNow =>
+        !IsAutoClickRunning &&
+        manualClickTask == null &&
+        !isStarting &&
+        !isPickingElement &&
+        !isOpeningBrowser &&
+        !isScanningTabs &&
+        !isSelectingTab;
 
     private bool IsBusy =>
         IsAutoClickRunning ||
@@ -92,10 +123,6 @@ public sealed partial class MainForm : Form
         isOpeningBrowser ||
         isScanningTabs ||
         isSelectingTab;
-
-    // ------------------------------------------------------------------
-    // Trạng thái giao diện
-    // ------------------------------------------------------------------
 
     private void UpdateControlStates()
     {
@@ -116,7 +143,7 @@ public sealed partial class MainForm : Form
         btnValidateSelector.Enabled = idle;
         btnShowVisible.Enabled = idle;
         btnRefreshPage.Enabled = idle;
-        btnClick.Enabled = idle && hasSelector;
+        btnClick.Enabled = hasSelector && CanClickOnceNow;
 
         numInterval.Enabled = idle && hasSelector;
         cmbIntervalUnit.Enabled = idle && hasSelector;
@@ -126,28 +153,33 @@ public sealed partial class MainForm : Form
         btnStart.Enabled = !IsAutoClickRunning && canStartNew && hasSelector;
         btnStop.Enabled = IsAutoClickRunning;
         toggleKeyword.Enabled = IsKeywordWatcherRunning || canStartNew;
+
+        cmbBrowser.Enabled = idle;
+        btnBrowseBrowser.Enabled = idle;
     }
 
     private void UpdateAutoState()
     {
         (string text, Color color) = isStarting
-            ? ("Đang khởi động...", UiTheme.Warning)
+            ? (Localization.T("Đang khởi động..."), UiTheme.Warning)
             : IsAutoClickRunning
-                ? ("Đang chạy", UiTheme.Success)
-                : ("Đã dừng", UiTheme.TextMuted);
+                ? (Localization.T("Đang chạy"), UiTheme.Success)
+                : (Localization.T("Đã dừng"), UiTheme.TextMuted);
 
-        lblAutoState.Text = "Chạy thao tác: " + text;
+        lblAutoState.Text = Localization.T("Chạy thao tác: ") + text;
         lblAutoState.ForeColor = color;
     }
 
     private void SetKeywordState(KeywordState state)
     {
+        keywordState = state;
+
         (string text, Color color) = state switch
         {
-            KeywordState.Waiting => ("Đang chờ từ khóa", UiTheme.Accent),
-            KeywordState.Processing => ("Đang xử lý", UiTheme.Process),
-            KeywordState.Stopping => ("Đang tắt...", UiTheme.Warning),
-            _ => ("Đã tắt", UiTheme.TextMuted)
+            KeywordState.Waiting => (Localization.T("Đang chờ từ khóa"), UiTheme.Accent),
+            KeywordState.Processing => (Localization.T("Đang xử lý"), UiTheme.Process),
+            KeywordState.Stopping => (Localization.T("Đang tắt..."), UiTheme.Warning),
+            _ => (Localization.T("Đã tắt"), UiTheme.TextMuted)
         };
 
         lblKeywordState.Text = text;
@@ -170,11 +202,11 @@ public sealed partial class MainForm : Form
     private void UpdateConnectionStatus()
     {
         if (browser.IsConnected && cmbTabs.SelectedItem is BrowserTab tab)
-            SetConnection("● Sẵn sàng", UiTheme.Success, $"Đã chọn: {tab.Title} | {ShortUrl(tab.Url)}");
+            SetConnection(Localization.T("● Sẵn sàng"), UiTheme.Success, $"Đã chọn: {tab.Title} | {ShortUrl(tab.Url)}");
         else if (browser.IsBrowserConnected)
-            SetConnection("● Đã kết nối", UiTheme.Warning, "Hãy quét tab và chọn một tab.");
+            SetConnection(Localization.T("● Đã kết nối"), UiTheme.Warning, Localization.T("Hãy quét tab và chọn một tab."));
         else
-            SetConnection("● Chưa kết nối", UiTheme.Danger, "Mở trình duyệt hoặc quét tab để kết nối.");
+            SetConnection(Localization.T("● Chưa kết nối"), UiTheme.Danger, Localization.T("Mở trình duyệt hoặc quét tab để kết nối."));
     }
 
     private void SetConnection(string pillText, Color color, string detail)
@@ -188,7 +220,12 @@ public sealed partial class MainForm : Form
     private void UpdateStatistics()
     {
         string elapsed = runStopwatch.Elapsed.ToString(@"hh\:mm\:ss");
-        lblStats.Text = $"Đã click: {totalClicks}  |  Thành công: {successfulClicks}  |  Lỗi: {failedClicks}  |  Thời gian: {elapsed}";
+        lblStats.Text = string.Format(
+            Localization.T("Đã click: {0}  |  Thành công: {1}  |  Lỗi: {2}  |  Thời gian: {3}"),
+            totalClicks,
+            successfulClicks,
+            failedClicks,
+            elapsed);
     }
 
     private void ResetStatistics()
@@ -211,6 +248,453 @@ public sealed partial class MainForm : Form
     }
 
     private void Log(ActivityLevel level, string message) => logView.AddEntry(level, message);
+
+    private AppSettings Settings => SettingsStore.Current;
+
+    private void ApplySettingsToControls(AppSettings settings)
+    {
+        isLoadingSettings = true;
+        try
+        {
+            txtKeyword.Text = settings.Keyword;
+            txtSelector.Text = settings.Selector;
+            txtSelectorName.Text = settings.SelectorName;
+
+            numInterval.Value = Math.Clamp(settings.IntervalValue, numInterval.Minimum, numInterval.Maximum);
+            cmbIntervalUnit.SelectedIndex = IsMinuteUnit(settings.IntervalUnit) ? 1 : 0;
+            numWaitTimeout.Value = Math.Clamp(settings.WaitTimeoutSeconds, numWaitTimeout.Minimum, numWaitTimeout.Maximum);
+
+            cmbLanguage.SelectedIndex = Localization.IsEnglish ? 1 : 0;
+
+            toggleMinimizeToTray.Checked = settings.MinimizeToTray;
+            toggleCloseToTray.Checked = settings.CloseToTray;
+            toggleNotifications.Checked = settings.ShowNotifications;
+            toggleGlobalHotkeys.Checked = settings.GlobalHotkeys;
+            toggleAvoidDuplicate.Checked = settings.AvoidDuplicateClicks;
+            cmbBrowser.SelectedIndex = BrowserFamilyIndex(settings.BrowserFamily);
+        }
+        finally
+        {
+            isLoadingSettings = false;
+        }
+    }
+
+    private static bool IsMinuteUnit(string unit) =>
+        string.Equals(unit, "minute", StringComparison.OrdinalIgnoreCase);
+
+    private void SaveSettings(Action<AppSettings> change)
+    {
+        if (isLoadingSettings)
+            return;
+
+        SettingsStore.Update(change);
+    }
+
+    private void QueueSettingsSave(Action<AppSettings> change)
+    {
+        if (isLoadingSettings)
+            return;
+
+        change(SettingsStore.Current);
+        settingsSaveTimer.Stop();
+        settingsSaveTimer.Start();
+    }
+
+    private void SettingsSaveTimer_Tick(object? sender, EventArgs e)
+    {
+        settingsSaveTimer.Stop();
+        SettingsStore.Save();
+    }
+
+    private void CmbLanguage_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        if (isLoadingSettings)
+            return;
+
+        string language = cmbLanguage.SelectedIndex == 1 ? Localization.English : Localization.Vietnamese;
+        if (language == Localization.Language)
+            return;
+
+        Localization.SetLanguage(language);
+        SettingsStore.Current.Language = language;
+        settingsSaveTimer.Stop();
+        SettingsStore.Save();
+        ApplyLanguage();
+    }
+
+    private void ApplyLanguage()
+    {
+        Localization.Apply(this);
+
+        foreach ((Control control, string text) in localizedToolTips)
+            toolTip.SetToolTip(control, Localization.T(text));
+
+        foreach ((RoundedTextBox box, string text) in localizedPlaceholders)
+            box.PlaceholderText = Localization.T(text);
+
+        UpdateConnectionStatus();
+        UpdateAutoState();
+        UpdateStatistics();
+        SetKeywordState(keywordState);
+        RefreshLogFilterItems();
+        RefreshBrowserItems();
+        RefreshIntervalUnitItems();
+        UpdateControlStates();
+    }
+
+    private async Task<bool> TryRecoverBrowserAsync(CancellationToken token)
+    {
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            if (token.IsCancellationRequested)
+                return false;
+
+            try
+            {
+                Log(ActivityLevel.Process, $"Mất kết nối trình duyệt. Đang thử kết nối lại ({attempt}/3)...");
+                await Task.Delay(TimeSpan.FromSeconds(attempt), token);
+
+                if (attempt == 2)
+                    await RelaunchBrowserIfClosedAsync();
+
+                await browser.ConnectAsync();
+
+                if (!await SelectRecoveredTabAsync(token))
+                {
+                    Log(ActivityLevel.Warning, "Chưa chọn được tab sau khi kết nối lại.");
+                    continue;
+                }
+
+                await RefreshTabsAsync();
+                UpdateConnectionStatus();
+                SaveSettings(settings => settings.LastTabUrl = lastTabUrl);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            catch (Exception exception)
+            {
+                Log(ActivityLevel.Warning, "Kết nối lại thất bại: " + DescribeError(exception));
+            }
+        }
+
+        return false;
+    }
+
+    private async Task RelaunchBrowserIfClosedAsync()
+    {
+        string? executable = BrowserLauncher.FindExecutable(Settings.BrowserFamily);
+
+        if (executable is null || BrowserLauncher.IsBrowserRunning(executable))
+            return;
+
+        try
+        {
+            Log(ActivityLevel.Process, "Trình duyệt đã đóng. Đang mở lại...");
+            BrowserLauncher.Start(executable);
+
+            bool ready = await BrowserLauncher.WaitForDebugPortAsync(
+                BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15));
+
+            if (!ready)
+                Log(ActivityLevel.Warning, "Cổng kết nối chưa sẵn sàng sau 15 giây.");
+        }
+        catch (Exception exception)
+        {
+            Log(ActivityLevel.Error, "Không mở lại được trình duyệt: " + DescribeError(exception));
+        }
+    }
+
+    private async Task<bool> SelectRecoveredTabAsync(CancellationToken token)
+    {
+        List<BrowserTab> tabs = await browser.GetTabsAsync();
+        BrowserTab? target = FindLastTab(tabs);
+
+        if (target is null && lastTabUrl.Length > 0)
+        {
+            Log(ActivityLevel.Process, "Không thấy tab cũ. Đang mở lại: " + ShortUrl(lastTabUrl));
+
+            if (await browser.OpenTabAsync(lastTabUrl, token))
+            {
+                tabs = await browser.GetTabsAsync();
+                target = FindLastTab(tabs);
+            }
+        }
+
+        if (target is null)
+            return false;
+
+        await browser.SelectTabAsync(target, bringToFront: false);
+        lastTabUrl = target.Url;
+        Log(ActivityLevel.Success, $"Đã kết nối lại và chọn tab: {ShortUrl(target.Url)}");
+        return true;
+    }
+
+    private BrowserTab? FindLastTab(List<BrowserTab> tabs)
+    {
+        if (lastTabUrl.Length == 0)
+            return tabs.FirstOrDefault();
+
+        return tabs.FirstOrDefault(tab =>
+                   string.Equals(tab.Url, lastTabUrl, StringComparison.OrdinalIgnoreCase))
+               ?? tabs.FirstOrDefault(tab =>
+                   tab.Url.Length > 0 &&
+                   tab.Url.StartsWith(lastTabUrl, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void CreateTrayIcon()
+    {
+        var menu = new ContextMenuStrip();
+
+        var openItem = new ToolStripMenuItem(Localization.T("Mở cửa sổ"));
+        openItem.Click += (_, _) => RestoreFromTray();
+
+        var startItem = new ToolStripMenuItem(Localization.T("Bắt đầu (F6)"));
+        startItem.Click += (_, _) =>
+        {
+            if (btnStart.Enabled)
+                btnStart.PerformClick();
+        };
+
+        var stopItem = new ToolStripMenuItem(Localization.T("Dừng (F7)"));
+        stopItem.Click += (_, _) =>
+        {
+            if (btnStop.Enabled)
+                btnStop.PerformClick();
+        };
+
+        var exitItem = new ToolStripMenuItem(Localization.T("Thoát"));
+        exitItem.Click += (_, _) =>
+        {
+            exitRequested = true;
+            Close();
+        };
+
+        menu.Items.Add(openItem);
+        menu.Items.Add(startItem);
+        menu.Items.Add(stopItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(exitItem);
+
+        trayIcon = new NotifyIcon
+        {
+            Icon = Icon ?? SystemIcons.Application,
+            Text = "Auto Click Selector",
+            Visible = true,
+            ContextMenuStrip = menu
+        };
+        trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+
+        NotificationService.Attach(trayIcon);
+    }
+
+    private void RestoreFromTray()
+    {
+        Show();
+        WindowState = FormWindowState.Normal;
+        Activate();
+        BringToFront();
+    }
+
+    private void RegisterHotkeys()
+    {
+        if (hotkeysRegistered || !Settings.GlobalHotkeys || !IsHandleCreated)
+            return;
+
+        hotkeysRegistered = GlobalHotkey.RegisterAll(Handle);
+        if (!hotkeysRegistered)
+            Log(ActivityLevel.Warning,
+                "Không đăng ký được phím tắt toàn cục (có thể ứng dụng khác đang dùng F6/F7/F8).");
+    }
+
+    private void ApplyHotkeySetting(bool enabled)
+    {
+        if (enabled)
+        {
+            RegisterHotkeys();
+            return;
+        }
+
+        if (!hotkeysRegistered)
+            return;
+
+        GlobalHotkey.UnregisterAll(Handle);
+        hotkeysRegistered = false;
+    }
+
+    private void ToggleMinimizeToTray_CheckedChanged(object? sender, EventArgs e) =>
+        SaveSettings(settings => settings.MinimizeToTray = toggleMinimizeToTray.Checked);
+
+    private void ToggleCloseToTray_CheckedChanged(object? sender, EventArgs e) =>
+        SaveSettings(settings => settings.CloseToTray = toggleCloseToTray.Checked);
+
+    private void ToggleNotifications_CheckedChanged(object? sender, EventArgs e) =>
+        SaveSettings(settings => settings.ShowNotifications = toggleNotifications.Checked);
+
+    private void ToggleGlobalHotkeys_CheckedChanged(object? sender, EventArgs e)
+    {
+        SaveSettings(settings => settings.GlobalHotkeys = toggleGlobalHotkeys.Checked);
+        ApplyHotkeySetting(toggleGlobalHotkeys.Checked);
+    }
+
+    private void ToggleAvoidDuplicate_CheckedChanged(object? sender, EventArgs e) =>
+        SaveSettings(settings => settings.AvoidDuplicateClicks = toggleAvoidDuplicate.Checked);
+
+    private static string BrowserFamilyCode(int index) => index switch
+    {
+        1 => "edge",
+        2 => "chrome",
+        3 => "custom",
+        _ => "coccoc"
+    };
+
+    private static int BrowserFamilyIndex(string family) => family switch
+    {
+        "edge" => 1,
+        "chrome" => 2,
+        "custom" => 3,
+        _ => 0
+    };
+
+    private void CmbBrowser_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        if (isLoadingSettings || logView is null)
+            return;
+
+        if (cmbBrowser.SelectedIndex == 3)
+        {
+            PickCustomBrowser();
+            return;
+        }
+
+        SaveSettings(settings => settings.BrowserFamily = BrowserFamilyCode(cmbBrowser.SelectedIndex));
+        Log(ActivityLevel.Info, "Trình duyệt sẽ mở: " + cmbBrowser.SelectedItem);
+    }
+
+    private void BtnBrowseBrowser_Click(object? sender, EventArgs e) => PickCustomBrowser();
+
+    private void PickCustomBrowser()
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = Localization.T("Chọn trình duyệt"),
+            Filter = "Chương trình (*.exe)|*.exe",
+            CheckFileExists = true
+        };
+
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            isLoadingSettings = true;
+            try
+            {
+                cmbBrowser.SelectedIndex = BrowserFamilyIndex(Settings.BrowserFamily);
+            }
+            finally
+            {
+                isLoadingSettings = false;
+            }
+
+            return;
+        }
+
+        try
+        {
+            BrowserLauncher.SaveExecutable(dialog.FileName);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            Log(ActivityLevel.Warning, "Không lưu được đường dẫn trình duyệt: " + DescribeError(exception));
+        }
+
+        SettingsStore.Current.BrowserFamily = "custom";
+        SettingsStore.Save();
+
+        isLoadingSettings = true;
+        try
+        {
+            cmbBrowser.SelectedIndex = 3;
+        }
+        finally
+        {
+            isLoadingSettings = false;
+        }
+
+        Log(ActivityLevel.Info, "Đã chọn trình duyệt: " + dialog.FileName);
+    }
+
+    private void CmbLogFilter_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        logView?.SetLevelFilter(LevelForFilterIndex(cmbLogFilter.SelectedIndex));
+    }
+
+    private static ActivityLevel? LevelForFilterIndex(int index) => index switch
+    {
+        1 => ActivityLevel.Error,
+        2 => ActivityLevel.Warning,
+        3 => ActivityLevel.Success,
+        4 => ActivityLevel.Info,
+        5 => ActivityLevel.Process,
+        _ => null
+    };
+
+    private void BtnLogExport_Click(object? sender, EventArgs e)
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Title = Localization.T("Xuất nhật ký"),
+            Filter = Localization.T("Văn bản") + " (*.txt)|*.txt",
+            FileName = $"nhat-ky-{DateTime.Now:yyyyMMdd-HHmmss}.txt"
+        };
+
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        try
+        {
+            logView.ExportTo(dialog.FileName);
+            Log(ActivityLevel.Success, "Đã xuất nhật ký: " + dialog.FileName);
+        }
+        catch (Exception exception)
+        {
+            Log(ActivityLevel.Error, "Không xuất được nhật ký: " + DescribeError(exception));
+        }
+    }
+
+    private void BtnLogClear_Click(object? sender, EventArgs e) => logView.ClearEntries();
+
+    protected override void WndProc(ref Message message)
+    {
+        if (message.Msg == GlobalHotkey.WmHotkey)
+        {
+            switch (message.WParam.ToInt32())
+            {
+                case GlobalHotkey.StartId when btnStart.Enabled:
+                    btnStart.PerformClick();
+                    return;
+                case GlobalHotkey.StopId when btnStop.Enabled:
+                    btnStop.PerformClick();
+                    return;
+                case GlobalHotkey.ClickId when btnClick.Enabled:
+                    btnClick.PerformClick();
+                    return;
+            }
+        }
+
+        base.WndProc(ref message);
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+
+        if (WindowState != FormWindowState.Minimized || trayIcon == null || !Settings.MinimizeToTray)
+            return;
+
+        Hide();
+        NotificationService.Notify(Localization.T("Ứng dụng vẫn chạy dưới khay hệ thống."));
+    }
 
     private void StartTrackedBrowserOperation(Func<Task> operation)
     {
@@ -242,10 +726,6 @@ public sealed partial class MainForm : Form
         }
     }
 
-    // ------------------------------------------------------------------
-    // Trình duyệt: mở, quét tab, chọn tab
-    // ------------------------------------------------------------------
-
     private void BtnRefreshTabs_Click(object? sender, EventArgs e) =>
         StartTrackedBrowserOperation(BtnRefreshTabsAsync);
 
@@ -255,7 +735,7 @@ public sealed partial class MainForm : Form
         UpdateControlStates();
         try
         {
-            Log(ActivityLevel.Process, "Đang kết nối CốC CốC để quét tab...");
+            Log(ActivityLevel.Process, "Đang kết nối trình duyệt để quét tab...");
             await browser.ConnectAsync();
             await RefreshTabsAsync();
         }
@@ -301,41 +781,49 @@ public sealed partial class MainForm : Form
 
     private async Task OpenBrowserAsync()
     {
-        if (await BrowserLauncher.IsDebugPortOpenAsync())
+        string family = Settings.BrowserFamily;
+
+        if (family.Length == 0)
         {
-            Log(ActivityLevel.Success, "CốC CốC đã mở sẵn với cổng kết nối. Hãy bấm 'Quét tab' để chọn tab.");
+            Log(ActivityLevel.Warning, "Hãy chọn trình duyệt cần mở trong ô 'Chọn trình duyệt'.");
             return;
         }
 
-        string? executable = BrowserLauncher.FindExecutable();
-        if (executable == null)
+        if (await BrowserLauncher.IsDebugPortOpenAsync())
         {
-            Log(ActivityLevel.Warning, "Không tìm thấy CốC CốC ở vị trí mặc định. Hãy chọn file browser.exe của CốC CốC.");
+            Log(ActivityLevel.Success, "Trình duyệt đã mở sẵn với cổng kết nối. Hãy bấm 'Quét tab' để chọn tab.");
+            return;
+        }
+
+        string? executable = BrowserLauncher.FindExecutable(family);
+
+        if (executable == null && string.Equals(family, "custom", StringComparison.OrdinalIgnoreCase))
+        {
             executable = PromptForBrowserExecutable();
+
             if (executable == null)
             {
-                Log(ActivityLevel.Warning, "Chưa chọn trình duyệt nên đã hủy mở trình duyệt.");
+                Log(ActivityLevel.Warning, "Chưa chọn đường dẫn trình duyệt nên đã hủy.");
                 return;
             }
 
-            try
-            {
-                BrowserLauncher.SaveExecutable(executable);
-                Log(ActivityLevel.Info, "Đã lưu đường dẫn trình duyệt để lần sau dùng lại.");
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                Log(ActivityLevel.Warning, "Không lưu được đường dẫn trình duyệt: " + DescribeError(exception));
-            }
+            BrowserLauncher.SaveExecutable(executable);
+        }
+
+        if (executable == null)
+        {
+            Log(ActivityLevel.Warning,
+                "Không tìm thấy trình duyệt đã chọn. Hãy bấm nút '...' để chọn đường dẫn.");
+            return;
         }
 
         if (BrowserLauncher.IsBrowserRunning(executable))
         {
-            Log(ActivityLevel.Warning, "CốC CốC đang chạy nhưng chưa mở cổng kết nối nên không thể điều khiển.");
+            Log(ActivityLevel.Warning, "Trình duyệt đang chạy nhưng chưa mở cổng kết nối nên không thể điều khiển.");
             DialogResult answer = MessageBox.Show(
                 this,
-                "CốC CốC đang mở mà không có cổng kết nối.\n\n" +
-                "Đóng CốC CốC để ứng dụng mở lại với cấu hình kết nối? Các tab chưa lưu có thể bị mất.",
+                "Trình duyệt đang mở mà không có cổng kết nối.\n\n" +
+                "Đóng trình duyệt để ứng dụng mở lại với cấu hình kết nối? Các tab chưa lưu có thể bị mất.",
                 AppTitle,
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question,
@@ -343,44 +831,47 @@ public sealed partial class MainForm : Form
 
             if (answer != DialogResult.Yes)
             {
-                Log(ActivityLevel.Info, "Đã hủy. Hãy tự đóng CốC CốC rồi bấm 'Mở trình duyệt' lại.");
+                Log(ActivityLevel.Info, "Đã hủy. Hãy tự đóng trình duyệt rồi bấm 'Mở trình duyệt' lại.");
                 return;
             }
 
-            Log(ActivityLevel.Process, "Đang đóng CốC CốC...");
-            bool closed = await BrowserLauncher.CloseBrowserAsync(executable, TimeSpan.FromSeconds(15));
-            if (!closed)
+            Log(ActivityLevel.Process, "Đang đóng trình duyệt...");
+
+            if (!await BrowserLauncher.CloseBrowserAsync(executable, TimeSpan.FromSeconds(15)))
             {
                 Log(ActivityLevel.Error,
-                    "CốC CốC vẫn đang chạy (có thể đang chạy nền). Hãy tắt chế độ chạy nền của CốC CốC " +
-                    "hoặc thoát từ khay hệ thống, rồi bấm 'Mở trình duyệt' lại.");
+                    "Trình duyệt vẫn đang chạy (có thể chạy nền). Hãy thoát hẳn rồi bấm 'Mở trình duyệt' lại.");
                 return;
             }
 
-            Log(ActivityLevel.Info, "Đã đóng CốC CốC.");
+            Log(ActivityLevel.Info, "Đã đóng trình duyệt.");
         }
 
         Log(ActivityLevel.Process, "Đang khởi chạy trình duyệt...");
+
         try
         {
             BrowserLauncher.Start(executable, BrowserLauncher.DebugPort);
         }
         catch (Exception exception)
         {
-            Log(ActivityLevel.Error, "Không khởi chạy được trình duyệt. Hãy kiểm tra đường dẫn: " + DescribeError(exception));
+            Log(ActivityLevel.Error,
+                "Không khởi chạy được trình duyệt. Hãy kiểm tra đường dẫn: " + DescribeError(exception));
             return;
         }
 
-        bool ready = await BrowserLauncher.WaitForDebugPortAsync(BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15));
+        bool ready = await BrowserLauncher.WaitForDebugPortAsync(
+            BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15));
+
         if (ready)
         {
-            Log(ActivityLevel.Success, "Trình duyệt đã được mở thành công. Hãy bấm 'Quét tab' để chọn tab.");
+            Log(ActivityLevel.Success, "Trình duyệt đã mở thành công. Hãy bấm 'Quét tab' để chọn tab.");
         }
         else
         {
             Log(ActivityLevel.Error,
-                "Đã gọi lệnh mở CốC CốC nhưng cổng kết nối chưa sẵn sàng. Có thể CốC CốC còn chạy nền từ phiên trước. " +
-                "Hãy đóng hẳn CốC CốC rồi bấm 'Mở trình duyệt' lại.");
+                "Đã gọi lệnh mở nhưng cổng kết nối chưa sẵn sàng. Có thể trình duyệt còn chạy nền từ phiên trước, " +
+                "hoặc phiên bản trình duyệt không cho phép cổng gỡ lỗi với hồ sơ mặc định.");
         }
     }
 
@@ -388,8 +879,8 @@ public sealed partial class MainForm : Form
     {
         using var dialog = new OpenFileDialog
         {
-            Title = "Chọn file browser.exe của CốC CốC",
-            Filter = "Chương trình (browser.exe)|browser.exe|Chương trình (*.exe)|*.exe",
+            Title = Localization.T("Chọn trình duyệt"),
+            Filter = "Chương trình (*.exe)|*.exe",
             CheckFileExists = true,
             Multiselect = false
         };
@@ -401,7 +892,6 @@ public sealed partial class MainForm : Form
     {
         List<BrowserTab> tabs = await browser.GetTabsAsync();
 
-        // Ưu tiên tab đang gắn kết nối; nếu trang đã chuyển URL thì tìm theo đối tượng trang.
         int selectedIndex = tabs.FindIndex(browser.IsCurrentPage);
         if (selectedIndex < 0 && cmbTabs.SelectedItem is BrowserTab previousTab)
             selectedIndex = tabs.FindIndex(tab => ReferenceEquals(tab.Page, previousTab.Page));
@@ -420,8 +910,9 @@ public sealed partial class MainForm : Form
 
         if (selectedIndex >= 0)
         {
-            // Không đưa tab ra trước mỗi lần quét, tránh làm phiền người dùng.
             await browser.SelectTabAsync(tabs[selectedIndex], bringToFront: false);
+            lastTabUrl = tabs[selectedIndex].Url;
+            SaveSettings(settings => settings.LastTabUrl = lastTabUrl);
             Log(ActivityLevel.Success, $"Tìm thấy {tabs.Count} tab; đang chọn: {ShortUrl(tabs[selectedIndex].Url)}");
         }
         else if (tabs.Count > 0)
@@ -456,6 +947,8 @@ public sealed partial class MainForm : Form
         try
         {
             await browser.SelectTabAsync(selectedTab);
+            lastTabUrl = selectedTab.Url;
+            SaveSettings(settings => settings.LastTabUrl = lastTabUrl);
             UpdateConnectionStatus();
             Log(ActivityLevel.Success, $"Đã chọn tab: {selectedTab.Title} | {ShortUrl(selectedTab.Url)}");
         }
@@ -470,10 +963,6 @@ public sealed partial class MainForm : Form
             UpdateControlStates();
         }
     }
-
-    // ------------------------------------------------------------------
-    // Selector: kiểm tra, chọn, lưu
-    // ------------------------------------------------------------------
 
     private void BtnValidateSelector_Click(object? sender, EventArgs e) =>
         StartTrackedBrowserOperation(ValidateSelectorAsync);
@@ -527,7 +1016,6 @@ public sealed partial class MainForm : Form
         }
     }
 
-    /// <summary>Liệt kê chữ đang hiển thị để người dùng tìm từ khóa quảng cáo.</summary>
     private void BtnShowVisible_Click(object? sender, EventArgs e) =>
         StartTrackedBrowserOperation(ShowVisibleTextAsync);
 
@@ -650,7 +1138,6 @@ public sealed partial class MainForm : Form
                 UpdateControlStates();
                 UpdateConnectionStatus();
 
-                // Chọn xong (hoặc hủy): đưa cửa sổ ứng dụng trở lại.
                 if (!WindowActivator.Activate(Handle))
                     Activate();
             }
@@ -769,10 +1256,6 @@ public sealed partial class MainForm : Form
         }
     }
 
-    // ------------------------------------------------------------------
-    // Chạy thao tác: bấm Selector theo chu kỳ
-    // ------------------------------------------------------------------
-
     private async void BtnStart_Click(object? sender, EventArgs e)
     {
         if (IsAutoClickRunning || isStarting)
@@ -803,7 +1286,6 @@ public sealed partial class MainForm : Form
         if (shutdownInProgress)
             return;
 
-        // Đặt cờ trước khi await để không mở thêm vòng lặp khi người dùng bấm dồn.
         isStarting = true;
         var validationCompletion = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -873,15 +1355,19 @@ public sealed partial class MainForm : Form
         }
         catch (OperationCanceledException)
         {
-            // Người dùng bấm Dừng.
         }
         catch (SelectorWaitTimeoutException)
         {
-            // Đã ghi nhật ký trong dịch vụ.
+            NotificationService.Warning(
+                Localization.T("Chạy thao tác đã dừng"),
+                "Không thấy Selector hiển thị trong thời gian chờ.");
         }
         catch (Exception exception)
         {
             Log(ActivityLevel.Error, "Chạy thao tác đã dừng do lỗi: " + DescribeError(exception));
+            NotificationService.Error(
+                Localization.T("Đã dừng do lỗi"),
+                DescribeError(exception));
         }
         finally
         {
@@ -913,7 +1399,7 @@ public sealed partial class MainForm : Form
 
     private async void BtnClick_Click(object? sender, EventArgs e)
     {
-        if (IsBusy)
+        if (!CanClickOnceNow)
         {
             Log(ActivityLevel.Warning, "Đang có thao tác khác. Vui lòng chờ thao tác hiện tại hoàn tất.");
             return;
@@ -980,10 +1466,6 @@ public sealed partial class MainForm : Form
         }
     }
 
-    // ------------------------------------------------------------------
-    // Click khi có từ khóa: theo dõi màn hình (độc lập với chạy thao tác)
-    // ------------------------------------------------------------------
-
     private void ToggleKeyword_CheckedChanged(object? sender, EventArgs e)
     {
         if (isSyncingKeywordToggle)
@@ -1005,7 +1487,6 @@ public sealed partial class MainForm : Form
 
         if (IsKeywordWatcherRunning)
         {
-            // Đang tắt từ lần trước; không mở thêm vòng lặp song song.
             SetKeywordToggle(false);
             Log(ActivityLevel.Warning, "Click khi có từ khóa đang tắt. Hãy thử bật lại sau giây lát.");
             return;
@@ -1067,11 +1548,13 @@ public sealed partial class MainForm : Form
         }
         catch (OperationCanceledException)
         {
-            // Người dùng đã tắt.
         }
         catch (Exception exception)
         {
             Log(ActivityLevel.Error, "Click khi có từ khóa đã dừng do lỗi: " + DescribeError(exception));
+            NotificationService.Error(
+                Localization.T("Click khi có từ khóa đã dừng"),
+                DescribeError(exception));
         }
         finally
         {
@@ -1086,10 +1569,6 @@ public sealed partial class MainForm : Form
             Log(ActivityLevel.Info, "Click khi có từ khóa: đã tắt.");
         }
     }
-
-    // ------------------------------------------------------------------
-    // Phím tắt, tham số, giao diện sáng/tối
-    // ------------------------------------------------------------------
 
     private void MainForm_KeyDown(object? sender, KeyEventArgs e)
     {
@@ -1115,7 +1594,7 @@ public sealed partial class MainForm : Form
 
     private int GetIntervalMilliseconds()
     {
-        decimal multiplier = cmbIntervalUnit.SelectedItem?.ToString() == UnitMinute ? 60_000m : 1_000m;
+        decimal multiplier = cmbIntervalUnit.SelectedIndex == 1 ? 60_000m : 1_000m;
         return (int)Math.Min(numInterval.Value * multiplier, int.MaxValue);
     }
 
@@ -1130,19 +1609,11 @@ public sealed partial class MainForm : Form
         themeStartedAt = Environment.TickCount64;
         themeTimer.Start();
 
-        try
-        {
-            AppPreferences.SaveDarkMode(themeTargetDark);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            Log(ActivityLevel.Warning, "Không thể lưu tùy chọn giao diện: " + DescribeError(exception));
-        }
+        SaveSettings(settings => settings.DarkMode = themeTargetDark);
 
         Log(ActivityLevel.Info, themeTargetDark ? "Đã chuyển sang giao diện tối." : "Đã chuyển sang giao diện sáng.");
     }
 
-    /// <summary>Chuyển màu dần dần trong khoảng 220 ms cho dễ nhìn.</summary>
     private void ThemeTimer_Tick(object? sender, EventArgs e)
     {
         if (themeFrom is null || themeTo is null)
@@ -1172,10 +1643,6 @@ public sealed partial class MainForm : Form
         }
     }
 
-    /// <summary>
-    /// Đổi màu từng control từ bảng cũ sang bảng mới, rồi đệ quy xuống các control con.
-    /// Các control tự vẽ (nút, công tắc, nhật ký) được vẽ lại theo bảng màu hiện tại.
-    /// </summary>
     private static void ApplyThemeTo(Control control, Palette previous)
     {
         control.BackColor = UiTheme.Remap(control.BackColor, previous);
@@ -1200,7 +1667,6 @@ public sealed partial class MainForm : Form
         control.Invalidate(true);
     }
 
-    /// <summary>Tô thanh tiêu đề Windows theo chế độ sáng/tối (Windows 10 1809 trở lên).</summary>
     private void ApplyTitleBarTheme()
     {
         if (!IsHandleCreated)
@@ -1213,7 +1679,6 @@ public sealed partial class MainForm : Form
         }
         catch (Exception exception) when (exception is DllNotFoundException or EntryPointNotFoundException)
         {
-            // Hệ điều hành cũ không hỗ trợ; giữ thanh tiêu đề mặc định.
         }
     }
 
@@ -1221,15 +1686,24 @@ public sealed partial class MainForm : Form
     {
         base.OnHandleCreated(e);
         ApplyTitleBarTheme();
+        RegisterHotkeys();
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (!exitRequested && !shutdownInProgress && Settings.CloseToTray &&
+            e.CloseReason == CloseReason.UserClosing && trayIcon != null)
+        {
+            e.Cancel = true;
+            Hide();
+            NotificationService.Notify(Localization.T("Ứng dụng vẫn chạy dưới khay hệ thống."));
+            return;
+        }
+
         base.OnFormClosing(e);
         if (e.Cancel || shutdownComplete)
             return;
 
-        // Giữ message loop hoạt động trong lúc các tác vụ nền kết thúc.
         e.Cancel = true;
         if (shutdownInProgress)
             return;
@@ -1249,8 +1723,6 @@ public sealed partial class MainForm : Form
     {
         try
         {
-            // Chờ thao tác kiểm tra Selector đang dở; nó có thể khởi chạy Auto Click
-            // ngay sau khi hoàn tất, vì vậy hủy token lần nữa bên dưới.
             Task? validationTask = startValidationCompletion?.Task;
             if (validationTask != null)
                 await validationTask;
@@ -1272,7 +1744,6 @@ public sealed partial class MainForm : Form
         }
         catch (Exception exception)
         {
-            // Tiếp tục giải phóng kết nối ngay cả khi một tác vụ nền kết thúc do lỗi.
             Log(ActivityLevel.Warning, "Một tác vụ nền kết thúc khi đóng ứng dụng: " + DescribeError(exception));
         }
         finally
@@ -1284,6 +1755,23 @@ public sealed partial class MainForm : Form
             catch (Exception exception)
             {
                 Log(ActivityLevel.Warning, "Không thể đóng hoàn toàn kết nối trình duyệt: " + DescribeError(exception));
+            }
+
+            if (hotkeysRegistered)
+            {
+                GlobalHotkey.UnregisterAll(Handle);
+                hotkeysRegistered = false;
+            }
+
+            settingsSaveTimer.Stop();
+            settingsSaveTimer.Dispose();
+            SettingsStore.Save();
+
+            if (trayIcon != null)
+            {
+                trayIcon.Visible = false;
+                trayIcon.Dispose();
+                trayIcon = null;
             }
 
             themeTimer.Dispose();

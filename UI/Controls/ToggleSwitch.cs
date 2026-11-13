@@ -6,7 +6,6 @@ using AutoClickSelector.UI.Themes;
 
 namespace AutoClickSelector.UI.Controls;
 
-/// <summary>Công tắc bật/tắt tự vẽ, nhãn nằm bên phải.</summary>
 public sealed class ToggleSwitch : Control
 {
     private const int TrackWidth = 42;

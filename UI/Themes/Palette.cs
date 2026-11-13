@@ -2,7 +2,6 @@ using System.Drawing;
 
 namespace AutoClickSelector.UI.Themes;
 
-/// <summary>Bộ màu của một chế độ giao diện (sáng hoặc tối).</summary>
 public sealed record Palette(
     Color Background,
     Color Surface,
@@ -48,17 +47,12 @@ public sealed record Palette(
         Danger: Color.FromArgb(248, 113, 113),
         Process: Color.FromArgb(167, 139, 250));
 
-    /// <summary>
-    /// Các màu có thể đổi khi chuyển giao diện (không gồm OnAccent, vì màu chữ trên nền nhấn
-    /// được vẽ trực tiếp). Thứ tự phải khớp giữa các bảng màu.
-    /// </summary>
     private Color[] Slots => new[]
     {
         Background, Surface, SurfaceAlt, SurfaceHover, Border,
         TextPrimary, TextMuted, Accent, Success, Warning, Danger, Process
     };
 
-    /// <summary>Đổi một màu của bảng "from" thành màu tương ứng trong bảng "to".</summary>
     public static Color Translate(Color color, Palette from, Palette to)
     {
         Color[] source = from.Slots;
@@ -73,7 +67,6 @@ public sealed record Palette(
         return color;
     }
 
-    /// <summary>Pha trộn hai bảng màu theo tỉ lệ t (0 là a, 1 là b).</summary>
     public static Palette Lerp(Palette a, Palette b, float t) => new(
         Mix(a.Background, b.Background, t),
         Mix(a.Surface, b.Surface, t),

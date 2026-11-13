@@ -2,7 +2,6 @@ using System.Drawing;
 
 namespace AutoClickSelector.UI.Themes;
 
-/// <summary>Trạng thái giao diện hiện tại: bảng màu đang dùng và phông chữ.</summary>
 public static class UiTheme
 {
     public static Palette Current { get; private set; } = Palette.Light;
@@ -36,6 +35,5 @@ public static class UiTheme
         IsDark = dark;
     }
 
-    /// <summary>Đổi màu cũ trong "from" thành màu tương ứng của bảng hiện tại.</summary>
     public static Color Remap(Color color, Palette from) => Palette.Translate(color, from, Current);
 }

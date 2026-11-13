@@ -2,7 +2,6 @@ using Microsoft.Playwright;
 
 namespace AutoClickSelector.Models;
 
-/// <summary>Một tab đang mở trong trình duyệt được điều khiển.</summary>
 public sealed class BrowserTab
 {
     internal BrowserTab(IPage page, string title, string url)

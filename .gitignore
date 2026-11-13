@@ -1,0 +1,7 @@
+bin/
+obj/
+_build/
+_design/
+*.user
+*.suo
+.vs/

@@ -1,16 +1,14 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Text;
 using System.Windows.Forms;
 using AutoClickSelector.Models;
+using AutoClickSelector.Services;
 using AutoClickSelector.UI.Components;
 using AutoClickSelector.UI.Themes;
 
 namespace AutoClickSelector.UI.Controls;
 
-/// <summary>
-/// Khung nhật ký bo góc với thanh cuộn tự vẽ. Nội dung là một RichTextBox không có thanh cuộn gốc;
-/// chiều cao của nó bằng đúng nội dung và được đẩy lên/xuống trong một khung cắt (clip) như thanh cuộn của khung chính.
-/// </summary>
 public sealed class LogView : Control
 {
     private const int MaxEntries = 500;
@@ -24,7 +22,10 @@ public sealed class LogView : Control
     private readonly Panel viewport;
     private readonly RichTextBox output;
     private readonly ThemedScrollBar scrollBar;
+
     private Palette? renderedPalette;
+    private ActivityLevel? levelFilter;
+    private string searchText = string.Empty;
 
     public LogView()
     {
@@ -63,12 +64,15 @@ public sealed class LogView : Control
         WheelRouter.Register(viewport, delta => scrollBar.ScrollBy(-delta / 120 * WheelStepPixels));
     }
 
+    public int TotalCount => entries.Count;
+
     public void AddEntry(ActivityLevel level, string message)
     {
-        // Đang ở cuối thì tự cuộn theo dòng mới; nếu người dùng đã cuộn lên thì giữ nguyên vị trí.
         bool follow = scrollBar.Value >= scrollBar.MaxValue;
 
-        entries.Add(new LogEntry(DateTime.Now, level, message));
+        var entry = new LogEntry(DateTime.Now, level, message);
+        entries.Add(entry);
+
         if (entries.Count > MaxEntries)
         {
             entries.RemoveRange(0, entries.Count - MaxEntries);
@@ -76,8 +80,11 @@ public sealed class LogView : Control
             return;
         }
 
+        if (!Matches(entry))
+            return;
+
         output.Height = MaxRichHeight;
-        AppendEntry(entries[^1]);
+        AppendEntry(entry);
         Relayout(follow);
     }
 
@@ -85,6 +92,40 @@ public sealed class LogView : Control
     {
         entries.Clear();
         Render(followBottom: true);
+    }
+
+    public void SetLevelFilter(ActivityLevel? level)
+    {
+        if (levelFilter == level)
+            return;
+
+        levelFilter = level;
+        Render(followBottom: true);
+    }
+
+    public void SetSearch(string? text)
+    {
+        string next = (text ?? string.Empty).Trim();
+        if (string.Equals(next, searchText, StringComparison.Ordinal))
+            return;
+
+        searchText = next;
+        Render(followBottom: true);
+    }
+
+    public void ExportTo(string path)
+    {
+        var builder = new StringBuilder();
+
+        foreach (LogEntry entry in entries)
+        {
+            builder
+                .Append('[').Append(entry.Time.ToString("yyyy-MM-dd HH:mm:ss")).Append("] ")
+                .Append(LevelLabel(entry.Level)).Append("  ")
+                .AppendLine(entry.Message);
+        }
+
+        File.WriteAllText(path, builder.ToString(), Encoding.UTF8);
     }
 
     public void RefreshTheme()
@@ -113,7 +154,15 @@ public sealed class LogView : Control
         g.FillPath(fill, path);
     }
 
-    /// <summary>Đặt lại vùng hiển thị, đo chiều cao nội dung và cập nhật thanh cuộn.</summary>
+    private bool Matches(LogEntry entry)
+    {
+        if (levelFilter.HasValue && entry.Level != levelFilter.Value)
+            return false;
+
+        return searchText.Length == 0
+            || entry.Message.Contains(searchText, StringComparison.OrdinalIgnoreCase);
+    }
+
     private void Relayout(bool followBottom)
     {
         int viewHeight = Math.Max(0, Height - Inset * 2);
@@ -122,7 +171,6 @@ public sealed class LogView : Control
         viewport.SetBounds(Inset, Inset, viewWidth, viewHeight);
         scrollBar.SetBounds(Width - Inset - BarWidth, Inset, BarWidth, viewHeight);
 
-        // Chiều rộng quyết định cách xuống dòng; đặt chiều cao lớn trước để đo chính xác.
         output.Width = viewWidth;
         output.Height = MaxRichHeight;
         int content = Math.Min(MeasureContentHeight(), MaxRichHeight);
@@ -151,7 +199,10 @@ public sealed class LogView : Control
         output.Height = MaxRichHeight;
 
         foreach (LogEntry entry in entries)
-            AppendEntry(entry);
+        {
+            if (Matches(entry))
+                AppendEntry(entry);
+        }
 
         Relayout(followBottom);
     }
@@ -173,11 +224,11 @@ public sealed class LogView : Control
 
     private static string LevelLabel(ActivityLevel level) => level switch
     {
-        ActivityLevel.Success => "THÀNH CÔNG",
-        ActivityLevel.Warning => "CẢNH BÁO",
-        ActivityLevel.Error => "LỖI",
-        ActivityLevel.Process => "ĐANG XỬ LÝ",
-        _ => "THÔNG TIN"
+        ActivityLevel.Success => Localization.T("THÀNH CÔNG"),
+        ActivityLevel.Warning => Localization.T("CẢNH BÁO"),
+        ActivityLevel.Error => Localization.T("LỖI"),
+        ActivityLevel.Process => Localization.T("ĐANG XỬ LÝ"),
+        _ => Localization.T("THÔNG TIN")
     };
 
     private static Color LevelColor(ActivityLevel level) => level switch

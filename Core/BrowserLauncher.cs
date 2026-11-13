@@ -5,24 +5,25 @@ using System.Text.Json;
 
 namespace AutoClickSelector.Core;
 
-/// <summary>
-/// Mở CốC CốC với cổng remote debugging (9222) để BrowserController có thể kết nối.
-/// Không truyền URL nào và không thay đổi hồ sơ (profile) của người dùng.
-/// </summary>
 internal static class BrowserLauncher
 {
     public const int DebugPort = 9222;
 
-    private const string BrowserFileName = "browser.exe";
-
-    /// <summary>Đường dẫn đã lưu trước đó nếu còn tồn tại; nếu không thì thử các vị trí mặc định.</summary>
-    public static string? FindExecutable()
+    public static string? FindExecutable(string family)
     {
-        string? saved = LoadSavedExecutable();
-        if (!string.IsNullOrWhiteSpace(saved) && File.Exists(saved))
-            return saved;
+        if (IsFamily(family, "custom"))
+        {
+            string? saved = LoadSavedExecutable();
+            return saved != null && File.Exists(saved) ? saved : null;
+        }
 
-        return GetDefaultCandidates().FirstOrDefault(File.Exists);
+        foreach (string candidate in GetCandidates(family))
+        {
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
     }
 
     public static void SaveExecutable(string path)
@@ -32,7 +33,6 @@ internal static class BrowserLauncher
         File.WriteAllText(file, JsonSerializer.Serialize(new BrowserSettings(path)));
     }
 
-    /// <summary>Chỉ chấp nhận endpoint DevTools hợp lệ trên loopback, không chỉ TCP mở.</summary>
     public static async Task<bool> IsDebugPortOpenAsync(int port = DebugPort)
     {
         if (port is < 1 or > 65535)
@@ -68,6 +68,7 @@ internal static class BrowserLauncher
     public static async Task<bool> WaitForDebugPortAsync(int port, TimeSpan timeout)
     {
         DateTime deadline = DateTime.UtcNow + timeout;
+
         while (DateTime.UtcNow < deadline)
         {
             if (await IsDebugPortOpenAsync(port))
@@ -87,13 +88,10 @@ internal static class BrowserLauncher
         return running;
     }
 
-    /// <summary>
-    /// Yêu cầu các cửa sổ CốC CốC đóng lại (giống bấm nút X, nên trình duyệt có thể lưu phiên).
-    /// Trả về true khi không còn tiến trình nào trong thời gian chờ.
-    /// </summary>
     public static async Task<bool> CloseBrowserAsync(string exePath, TimeSpan timeout)
     {
         List<Process> instances = FindInstances(exePath);
+
         foreach (Process process in instances)
         {
             try
@@ -103,13 +101,13 @@ internal static class BrowserLauncher
             }
             catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
             {
-                // Tiến trình có thể đã thoát; bỏ qua.
             }
         }
 
         DisposeAll(instances);
 
         DateTime deadline = DateTime.UtcNow + timeout;
+
         while (DateTime.UtcNow < deadline)
         {
             if (!IsBrowserRunning(exePath))
@@ -132,9 +130,39 @@ internal static class BrowserLauncher
         };
 
         using Process? process = Process.Start(startInfo);
+
         if (process == null)
             throw new InvalidOperationException("Hệ điều hành không khởi chạy được tiến trình trình duyệt.");
     }
+
+    private static IEnumerable<string> GetCandidates(string family)
+    {
+        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+
+        if (IsFamily(family, "edge"))
+        {
+            yield return Path.Combine(programFiles, "Microsoft", "Edge", "Application", "msedge.exe");
+            yield return Path.Combine(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe");
+            yield break;
+        }
+
+        if (IsFamily(family, "chrome"))
+        {
+            yield return Path.Combine(programFiles, "Google", "Chrome", "Application", "chrome.exe");
+            yield return Path.Combine(programFilesX86, "Google", "Chrome", "Application", "chrome.exe");
+            yield return Path.Combine(local, "Google", "Chrome", "Application", "chrome.exe");
+            yield break;
+        }
+
+        yield return Path.Combine(local, "CocCoc", "Browser", "Application", "browser.exe");
+        yield return Path.Combine(programFiles, "CocCoc", "Browser", "Application", "browser.exe");
+        yield return Path.Combine(programFilesX86, "CocCoc", "Browser", "Application", "browser.exe");
+    }
+
+    private static bool IsFamily(string family, string expected) =>
+        string.Equals(family, expected, StringComparison.OrdinalIgnoreCase);
 
     private static List<Process> FindInstances(string exePath)
     {
@@ -145,6 +173,7 @@ internal static class BrowserLauncher
         foreach (Process process in Process.GetProcessesByName(processName))
         {
             bool isMatch = false;
+
             try
             {
                 isMatch = string.Equals(
@@ -154,7 +183,6 @@ internal static class BrowserLauncher
             }
             catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
             {
-                // Không đọc được đường dẫn (tiến trình của người dùng khác hoặc đã thoát).
             }
 
             if (isMatch)
@@ -170,17 +198,6 @@ internal static class BrowserLauncher
     {
         foreach (Process process in processes)
             process.Dispose();
-    }
-
-    private static IEnumerable<string> GetDefaultCandidates()
-    {
-        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-        string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-
-        yield return Path.Combine(local, "CocCoc", "Browser", "Application", BrowserFileName);
-        yield return Path.Combine(programFiles, "CocCoc", "Browser", "Application", BrowserFileName);
-        yield return Path.Combine(programFilesX86, "CocCoc", "Browser", "Application", BrowserFileName);
     }
 
     private static string SettingsFile => Path.Combine(

@@ -2,7 +2,6 @@ using System.Text.Json;
 
 namespace AutoClickSelector.Core;
 
-/// <summary>Đọc và ghi danh sách CSS Selector đã lưu. Không phụ thuộc giao diện.</summary>
 internal static class SelectorRepository
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -20,7 +19,6 @@ internal static class SelectorRepository
         }
         catch (JsonException)
         {
-            // Giữ nguyên file lỗi để người dùng có thể khôi phục thủ công.
             string backupPath = path + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
             try
             {
@@ -28,11 +26,9 @@ internal static class SelectorRepository
             }
             catch (IOException)
             {
-                // Không làm ứng dụng dừng chỉ vì không thể tạo bản sao lưu.
             }
             catch (UnauthorizedAccessException)
             {
-                // Tiếp tục với danh sách rỗng; file gốc không bị xóa.
             }
 
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

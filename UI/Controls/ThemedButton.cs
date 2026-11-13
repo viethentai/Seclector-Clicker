@@ -6,7 +6,6 @@ using AutoClickSelector.UI.Themes;
 
 namespace AutoClickSelector.UI.Controls;
 
-/// <summary>Kiểu nút: Primary (nhấn mạnh), Secondary (mặc định), Danger (nguy hiểm), Ghost (chỉ chữ).</summary>
 public enum ButtonVariant
 {
     Secondary,
@@ -15,7 +14,6 @@ public enum ButtonVariant
     Ghost
 }
 
-/// <summary>Nút bo góc tự vẽ, đổi màu theo giao diện sáng/tối.</summary>
 public sealed class ThemedButton : Button
 {
     private const int CornerRadius = 8;

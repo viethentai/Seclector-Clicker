@@ -6,7 +6,6 @@ using AutoClickSelector.UI.Themes;
 
 namespace AutoClickSelector.UI.Controls;
 
-/// <summary>Ô nhập một dòng có nền và viền bo góc; TextBox bên trong không có viền.</summary>
 public sealed class RoundedTextBox : Control
 {
     private const int CornerRadius = 8;

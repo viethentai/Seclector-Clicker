@@ -6,10 +6,8 @@ using AutoClickSelector.UI.Themes;
 
 namespace AutoClickSelector.UI.Controls;
 
-/// <summary>Ô chọn bo góc, mũi tên và danh sách thả xuống tự vẽ (tối đa 5 dòng, còn lại cuộn).</summary>
 public sealed class ThemedComboBox : Control
 {
-    /// <summary>Khoảng đệm trong danh sách thả xuống; dùng chung với <see cref="ComboPopup"/>.</summary>
     internal const int PopupInset = 4;
 
     private const int CornerRadius = 8;
@@ -38,6 +36,7 @@ public sealed class ThemedComboBox : Control
         BackColor = UiTheme.SurfaceAlt;
         ForeColor = UiTheme.TextPrimary;
         TabStop = true;
+        Height = 32;
     }
 
     public event EventHandler? SelectedIndexChanged;
@@ -102,7 +101,6 @@ public sealed class ThemedComboBox : Control
             textColor,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
 
-        // Mũi tên tự vẽ, cùng màu với chữ.
         float cx = Width - ArrowAreaWidth / 2f - 2;
         float cy = Height / 2f;
         PointF[] arrow =
@@ -147,7 +145,6 @@ public sealed class ThemedComboBox : Control
             return;
         }
 
-        // Khi popup vừa bị đóng bởi chính cú bấm này, không mở lại.
         if (Environment.TickCount64 - lastPopupClosedAt < ReopenGuardMilliseconds)
             return;
 
@@ -215,14 +212,12 @@ public sealed class ThemedComboBox : Control
 
         popup = newPopup;
 
-        // Khi danh sách đang mở, bánh xe chỉ cuộn chính danh sách, không cuộn phần còn lại.
         WheelRouter.SetModal(newPopup, newPopup.HandleWheel);
         Invalidate();
         newPopup.Show(FindForm());
     }
 }
 
-/// <summary>Danh sách thả xuống tự vẽ, hiện như một cửa sổ không viền ngay dưới ô chọn, có thanh cuộn.</summary>
 internal sealed class ComboPopup : Form
 {
     private const int ScrollBarWidth = 10;
@@ -269,7 +264,6 @@ internal sealed class ComboPopup : Form
 
     private int ContentHeight => items.Count * rowHeight + ThemedComboBox.PopupInset * 2;
 
-    /// <summary>Nhận bánh xe chuột từ ComboBox (đã được WheelRouter chuyển tới).</summary>
     public void HandleWheel(int delta) => scrollBar.ScrollBy(-delta / 120 * rowHeight);
 
     protected override void OnResize(EventArgs e)
@@ -283,7 +277,6 @@ internal sealed class ComboPopup : Form
     {
         base.OnShown(e);
 
-        // Cuộn sao cho mục đang chọn nằm trong vùng nhìn.
         if (selectedIndex >= 0)
         {
             scrollBar.SetValueSilently(selectedIndex * rowHeight);

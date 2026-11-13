@@ -1,13 +1,14 @@
 using System.Drawing;
 using System.Windows.Forms;
+using AutoClickSelector.Core;
 using AutoClickSelector.Models;
+using AutoClickSelector.Services;
 using AutoClickSelector.UI.Components;
 using AutoClickSelector.UI.Controls;
 using AutoClickSelector.UI.Themes;
 
 namespace AutoClickSelector.UI.Forms;
 
-/// <summary>Phần dựng giao diện của cửa sổ chính (bố cục, control, nhãn).</summary>
 public sealed partial class MainForm
 {
     private const string UnitSecond = "giây";
@@ -18,8 +19,12 @@ public sealed partial class MainForm
     private ToolTip toolTip = null!;
 
     private Label lblConnection = null!;
+    private Label lblLanguage = null!;
     private ToggleSwitch toggleDarkMode = null!;
+    private ThemedComboBox cmbLanguage = null!;
 
+    private ThemedComboBox cmbBrowser = null!;
+    private ThemedButton btnBrowseBrowser = null!;
     private ThemedComboBox cmbTabs = null!;
     private ThemedButton btnOpenBrowser = null!;
     private ThemedButton btnRefreshTabs = null!;
@@ -50,7 +55,18 @@ public sealed partial class MainForm
     private ToggleSwitch toggleKeyword = null!;
     private Label lblKeywordState = null!;
 
+    private ToggleSwitch toggleMinimizeToTray = null!;
+    private ToggleSwitch toggleCloseToTray = null!;
+    private ToggleSwitch toggleNotifications = null!;
+    private ToggleSwitch toggleGlobalHotkeys = null!;
+    private ToggleSwitch toggleAvoidDuplicate = null!;
+
     private LogView logView = null!;
+
+    private RoundedTextBox txtLogSearch = null!;
+    private ThemedComboBox cmbLogFilter = null!;
+    private ThemedButton btnLogExport = null!;
+    private ThemedButton btnLogClear = null!;
 
     private Panel bodyHost = null!;
     private TableLayoutPanel bodyColumns = null!;
@@ -65,7 +81,6 @@ public sealed partial class MainForm
         Text = "Auto Click Selector";
         StartPosition = FormStartPosition.CenterScreen;
 
-        // Kích thước cố định: không kéo giãn, không phóng to; vẫn có nút thu nhỏ.
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MinimizeBox = true;
         MaximizeBox = false;
@@ -82,7 +97,6 @@ public sealed partial class MainForm
         if (LoadIcon() is { } icon)
             Icon = icon;
 
-        // Bố cục ba hàng: tiêu đề, phần thao tác (có cuộn tự vẽ) và nhật ký (chiều cao cố định).
         var root = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -101,9 +115,21 @@ public sealed partial class MainForm
         root.Controls.Add(BuildLogCard(), 0, 2);
         Controls.Add(root);
 
-        // Đăng ký sau khi mọi control đã tồn tại để tránh tham chiếu null.
-        txtSelector.TextChanged += (_, _) => UpdateControlStates();
-        txtKeyword.TextChanged += (_, _) => AppPreferences.SaveKeyword(txtKeyword.Text);
+        txtSelector.TextChanged += (_, _) =>
+        {
+            UpdateControlStates();
+            QueueSettingsSave(settings => settings.Selector = txtSelector.Text.Trim());
+        };
+        txtSelectorName.TextChanged += (_, _) =>
+            QueueSettingsSave(settings => settings.SelectorName = txtSelectorName.Text.Trim());
+        txtKeyword.TextChanged += (_, _) =>
+            QueueSettingsSave(settings => settings.Keyword = txtKeyword.Text);
+        numInterval.ValueChanged += (_, _) =>
+            SaveSettings(settings => settings.IntervalValue = numInterval.Value);
+        cmbIntervalUnit.SelectedIndexChanged += (_, _) =>
+            SaveSettings(settings => settings.IntervalUnit = cmbIntervalUnit.SelectedIndex == 1 ? "minute" : "second");
+        numWaitTimeout.ValueChanged += (_, _) =>
+            SaveSettings(settings => settings.WaitTimeoutSeconds = numWaitTimeout.Value);
 
         Shown += (_, _) => LayoutBody();
 
@@ -135,8 +161,11 @@ public sealed partial class MainForm
             BackColor = UiTheme.Background,
             Margin = new Padding(0)
         };
+
         var lblTitle = CreateLabel("Auto Click Selector", UiTheme.Title, UiTheme.TextPrimary, 0);
-        var lblSubtitle = CreateLabel("Tự động thao tác trên trình duyệt CốC CốC", UiTheme.Small, UiTheme.TextMuted, 0);
+        var lblSubtitle = CreateLabel(
+            "Tự động thao tác trên trình duyệt", UiTheme.Small, UiTheme.TextMuted, 0);
+
         titles.Controls.Add(lblTitle);
         titles.Controls.Add(lblSubtitle);
 
@@ -144,20 +173,35 @@ public sealed partial class MainForm
         {
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            FlowDirection = FlowDirection.TopDown,
+            FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
             BackColor = UiTheme.Background,
             Margin = new Padding(0)
         };
-        lblConnection = CreateLabel("Chưa kết nối", UiTheme.Heading, UiTheme.Danger, 8);
+
+        lblConnection = CreateLabel("Chưa kết nối", UiTheme.Heading, UiTheme.Danger, 0);
+        lblConnection.Margin = new Padding(0, 10, 14, 0);
+
+        lblLanguage = CreateLabel("Ngôn ngữ", UiTheme.Small, UiTheme.TextMuted, 0);
+        lblLanguage.Margin = new Padding(0, 14, 6, 0);
+
+        cmbLanguage = new ThemedComboBox { Width = 132, Margin = new Padding(0, 6, 12, 0) };
+        cmbLanguage.Items.AddRange(new object[] { "Tiếng Việt", "English" });
+        cmbLanguage.SelectedIndexChanged += CmbLanguage_SelectedIndexChanged;
+
         toggleDarkMode = new ToggleSwitch
         {
-            Text = "Chế độ tối",
+            Text = Localization.T("Chế độ tối"),
+            Tag = "Chế độ tối",
             Checked = UiTheme.IsDark,
-            BackColor = UiTheme.Background
+            BackColor = UiTheme.Background,
+            Margin = new Padding(0, 8, 0, 0)
         };
         toggleDarkMode.CheckedChanged += ToggleDarkMode_CheckedChanged;
+
         actions.Controls.Add(lblConnection);
+        actions.Controls.Add(lblLanguage);
+        actions.Controls.Add(cmbLanguage);
         actions.Controls.Add(toggleDarkMode);
 
         header.Controls.Add(titles, 0, 0);
@@ -165,20 +209,17 @@ public sealed partial class MainForm
         return header;
     }
 
-    /// <summary>
-    /// Khung thao tác cuộn bằng thanh tự vẽ: nội dung được đặt lệch lên trên theo vị trí cuộn.
-    /// </summary>
     private Control BuildBody()
     {
         var left = CreateStack();
         var right = CreateStack();
 
         AddToStack(left, BuildConnectionCard(), new Padding(0, 0, 10, 16));
-        AddToStack(left, BuildSelectorCard(), new Padding(0, 0, 10, 16));
-        AddToStack(left, BuildIntervalCard(), new Padding(0, 0, 10, 0));
+        AddToStack(left, BuildSelectorCard(), new Padding(0, 0, 10, 0));
 
         AddToStack(right, BuildRunCard(), new Padding(10, 0, 0, 16));
-        AddToStack(right, BuildKeywordCard(), new Padding(10, 0, 0, 0));
+        AddToStack(right, BuildKeywordCard(), new Padding(10, 0, 0, 16));
+        AddToStack(right, BuildSettingsCard(), new Padding(10, 0, 0, 0));
 
         bodyColumns = new TableLayoutPanel
         {
@@ -206,7 +247,6 @@ public sealed partial class MainForm
         return bodyHost;
     }
 
-    /// <summary>Đo lại nội dung theo chiều rộng hiện tại rồi cập nhật phạm vi cuộn.</summary>
     private void LayoutBody()
     {
         if (bodyHost == null || bodyColumns == null || bodyBar == null)
@@ -223,13 +263,26 @@ public sealed partial class MainForm
     {
         var card = new SectionCard("1. Trình duyệt");
 
+        card.AddRow(CreateHint("Chọn trình duyệt cần mở"));
+
+        cmbBrowser = CreateCombo();
+        cmbBrowser.SelectedIndexChanged += CmbBrowser_SelectedIndexChanged;
+        RefreshBrowserItems();
+
+        btnBrowseBrowser = CreateButton("...", ButtonVariant.Secondary, BtnBrowseBrowser_Click);
+        card.AddRow(CreateSplitRow(cmbBrowser, btnBrowseBrowser));
+
         btnOpenBrowser = CreateButton("Mở trình duyệt", ButtonVariant.Primary, BtnOpenBrowser_Click);
         btnRefreshTabs = CreateButton("Quét tab", ButtonVariant.Secondary, BtnRefreshTabs_Click);
         card.AddInline(btnOpenBrowser, btnRefreshTabs);
-        toolTip.SetToolTip(btnOpenBrowser, "Mở CốC CốC với cổng điều khiển. Nếu đang mở sẵn với cổng đó thì chỉ kết nối lại.");
-        toolTip.SetToolTip(btnRefreshTabs, "Tìm các tab đang mở để chọn tab cần điều khiển.");
+
+        SetToolTip(btnOpenBrowser,
+            "Mở trình duyệt đã chọn với cổng điều khiển. Nếu đang mở sẵn với cổng đó thì chỉ kết nối lại.");
+        SetToolTip(btnRefreshTabs, "Tìm các tab đang mở để chọn tab cần điều khiển.");
+        SetToolTip(btnBrowseBrowser, "Chọn đường dẫn tệp .exe của trình duyệt không có trong danh sách.");
 
         card.AddRow(CreateHint("Tab đang điều khiển"));
+
         cmbTabs = CreateCombo();
         cmbTabs.SelectedIndexChanged += CmbTabs_SelectedIndexChanged;
         card.AddRow(cmbTabs);
@@ -244,6 +297,7 @@ public sealed partial class MainForm
         var card = new SectionCard("2. Selector");
 
         card.AddRow(CreateHint("Selector đã lưu"));
+
         cmbSavedSelectors = CreateCombo();
         cmbSavedSelectors.SelectedIndexChanged += CmbSavedSelectors_SelectedIndexChanged;
         card.AddRow(cmbSavedSelectors);
@@ -256,6 +310,7 @@ public sealed partial class MainForm
         card.AddInline(btnSaveSelector, btnDeleteSelector);
 
         card.AddRow(CreateHint("CSS Selector"));
+
         txtSelector = CreateTextBox("Ví dụ: button[data-e2e='arrow-right']");
         card.AddRow(txtSelector);
 
@@ -263,8 +318,11 @@ public sealed partial class MainForm
         btnValidateSelector = CreateButton("Kiểm tra", ButtonVariant.Secondary, BtnValidateSelector_Click);
         btnShowVisible = CreateButton("Xem chữ hiển thị", ButtonVariant.Secondary, BtnShowVisible_Click);
         card.AddInline(btnPickElement, btnValidateSelector, btnShowVisible);
-        toolTip.SetToolTip(btnPickElement, "Chuyển sang trình duyệt, bấm vào phần tử cần chọn. Nhấn Esc để hủy.");
-        toolTip.SetToolTip(btnShowVisible, "Liệt kê chữ đang hiển thị trong khung nhìn, giúp tìm từ khóa quảng cáo.");
+
+        SetToolTip(btnPickElement,
+            "Chuyển sang trình duyệt, bấm vào phần tử cần chọn. Nhấn Esc để hủy.");
+        SetToolTip(btnShowVisible,
+            "Liệt kê chữ đang hiển thị trong khung nhìn, giúp tìm từ khóa quảng cáo.");
 
         lblSelectorValidation = CreateLabel(string.Empty, UiTheme.Body, UiTheme.TextMuted, 0);
         lblSelectorValidation.Visible = false;
@@ -272,26 +330,22 @@ public sealed partial class MainForm
         return card;
     }
 
-    private SectionCard BuildIntervalCard()
+    private SectionCard BuildRunCard()
     {
-        var card = new SectionCard("3. Chu kỳ click");
+        var card = new SectionCard("3. Chạy thao tác");
 
         card.AddRow(CreateHint("Khoảng nghỉ giữa các lần click"));
+
         numInterval = CreateNumeric(minimum: 0.2m, maximum: 100000m, value: 1m, increment: 0.5m, decimalPlaces: 1);
         cmbIntervalUnit = CreateCombo();
-        cmbIntervalUnit.Items.AddRange(new object[] { UnitSecond, UnitMinute });
+        cmbIntervalUnit.Items.AddRange(new object[] { Localization.T(UnitSecond), Localization.T(UnitMinute) });
         cmbIntervalUnit.SelectedIndex = 0;
         card.AddInline(numInterval, cmbIntervalUnit);
 
         card.AddRow(CreateHint("Thời gian chờ tối đa để Selector hiển thị (giây)"));
+
         numWaitTimeout = CreateNumeric(minimum: 1m, maximum: 600m, value: 10m, increment: 1m, decimalPlaces: 1);
         card.AddRow(numWaitTimeout);
-        return card;
-    }
-
-    private SectionCard BuildRunCard()
-    {
-        var card = new SectionCard("4. Chạy thao tác");
 
         btnStart = CreateButton("Bắt đầu (F6)", ButtonVariant.Primary, BtnStart_Click);
         btnStop = CreateButton("Dừng (F7)", ButtonVariant.Danger, BtnStop_Click);
@@ -311,14 +365,20 @@ public sealed partial class MainForm
 
     private SectionCard BuildKeywordCard()
     {
-        var card = new SectionCard("5. Click khi có từ khóa");
+        var card = new SectionCard("4. Click khi có từ khóa");
 
         card.AddRow(CreateHint("Từ khóa, cách nhau bằng dấu phẩy"));
+
         txtKeyword = CreateTextBox("Ví dụ: Sponsored, Quảng cáo");
-        txtKeyword.Text = AppPreferences.LoadKeyword();
+        txtKeyword.Text = SettingsStore.Current.Keyword;
         card.AddRow(txtKeyword);
 
-        toggleKeyword = new ToggleSwitch { Text = "Bật theo dõi từ khóa", BackColor = UiTheme.Surface };
+        toggleKeyword = new ToggleSwitch
+        {
+            Text = Localization.T("Bật theo dõi từ khóa"),
+            Tag = "Bật theo dõi từ khóa",
+            BackColor = UiTheme.Surface
+        };
         toggleKeyword.CheckedChanged += ToggleKeyword_CheckedChanged;
         card.AddRow(toggleKeyword);
 
@@ -331,12 +391,157 @@ public sealed partial class MainForm
         return card;
     }
 
+    private SectionCard BuildSettingsCard()
+    {
+        var card = new SectionCard("5. Cài đặt");
+
+        toggleMinimizeToTray = CreateSettingToggle(
+            "Thu nhỏ xuống khay khi chạy", ToggleMinimizeToTray_CheckedChanged);
+        card.AddRow(toggleMinimizeToTray);
+
+        toggleCloseToTray = CreateSettingToggle(
+            "Thoát xuống khay khi bấm X", ToggleCloseToTray_CheckedChanged);
+        card.AddRow(toggleCloseToTray);
+
+        toggleNotifications = CreateSettingToggle(
+            "Thông báo khi dừng hoặc lỗi", ToggleNotifications_CheckedChanged);
+        card.AddRow(toggleNotifications);
+
+        toggleGlobalHotkeys = CreateSettingToggle(
+            "Phím tắt toàn cục (F6/F7/F8)", ToggleGlobalHotkeys_CheckedChanged);
+        card.AddRow(toggleGlobalHotkeys);
+
+        toggleAvoidDuplicate = CreateSettingToggle(
+            "Bỏ qua click trùng khi phần tử không đổi", ToggleAvoidDuplicate_CheckedChanged);
+        card.AddRow(toggleAvoidDuplicate, 0);
+        return card;
+    }
+
     private SectionCard BuildLogCard()
     {
         var card = new SectionCard("Nhật ký hoạt động") { AutoSize = false, Dock = DockStyle.Fill };
+
         logView = new LogView();
+
+        var toolbar = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = false,
+            Height = 32,
+            ColumnCount = 4,
+            RowCount = 1,
+            BackColor = UiTheme.Surface,
+            Margin = new Padding(0, 0, 0, 8)
+        };
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 46));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16));
+        toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16));
+        toolbar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        txtLogSearch = CreateTextBox("Tìm trong nhật ký...");
+        txtLogSearch.Dock = DockStyle.Fill;
+        txtLogSearch.Margin = new Padding(0, 0, 8, 0);
+        txtLogSearch.TextChanged += (_, _) => logView.SetSearch(txtLogSearch.Text);
+
+        cmbLogFilter = CreateCombo();
+        cmbLogFilter.Dock = DockStyle.Fill;
+        cmbLogFilter.Margin = new Padding(0, 0, 8, 0);
+        cmbLogFilter.SelectedIndexChanged += CmbLogFilter_SelectedIndexChanged;
+
+        btnLogExport = CreateButton("Xuất", ButtonVariant.Secondary, BtnLogExport_Click);
+        btnLogExport.Dock = DockStyle.Fill;
+        btnLogExport.Margin = new Padding(0, 0, 8, 0);
+
+        btnLogClear = CreateButton("Xoá nhật ký", ButtonVariant.Ghost, BtnLogClear_Click);
+        btnLogClear.Dock = DockStyle.Fill;
+        btnLogClear.Margin = new Padding(0);
+
+        toolbar.Controls.Add(txtLogSearch, 0, 0);
+        toolbar.Controls.Add(cmbLogFilter, 1, 0);
+        toolbar.Controls.Add(btnLogExport, 2, 0);
+        toolbar.Controls.Add(btnLogClear, 3, 0);
+
+        card.AddRow(toolbar, 8);
+
+        RefreshLogFilterItems();
+        cmbLogFilter.SelectedIndex = 0;
+
         card.AddFill(logView);
         return card;
+    }
+
+    private void RefreshLogFilterItems()
+    {
+        if (cmbLogFilter == null)
+            return;
+
+        int selected = cmbLogFilter.SelectedIndex;
+        cmbLogFilter.Items.Clear();
+        cmbLogFilter.Items.AddRange(new object[]
+        {
+            Localization.T("Tất cả"),
+            Localization.T("Lỗi"),
+            Localization.T("Cảnh báo"),
+            Localization.T("Thành công"),
+            Localization.T("Thông tin"),
+            Localization.T("Đang xử lý")
+        });
+        cmbLogFilter.SelectedIndex = selected < 0 || selected >= cmbLogFilter.Items.Count ? 0 : selected;
+    }
+
+    private void RefreshBrowserItems()
+    {
+        if (cmbBrowser == null)
+            return;
+
+        int selected = cmbBrowser.SelectedIndex;
+        cmbBrowser.Items.Clear();
+        cmbBrowser.Items.AddRange(new object[]
+        {
+            "Cốc Cốc",
+            "Microsoft Edge",
+            "Google Chrome",
+            Localization.T("Trình duyệt khác")
+        });
+        cmbBrowser.SelectedIndex = selected < 0 || selected >= cmbBrowser.Items.Count ? 0 : selected;
+    }
+
+    private void RefreshIntervalUnitItems()
+    {
+        if (cmbIntervalUnit == null)
+            return;
+
+        int selected = cmbIntervalUnit.SelectedIndex;
+        cmbIntervalUnit.Items.Clear();
+        cmbIntervalUnit.Items.AddRange(new object[] { Localization.T(UnitSecond), Localization.T(UnitMinute) });
+        cmbIntervalUnit.SelectedIndex = selected < 0 ? 0 : selected;
+    }
+
+    private static TableLayoutPanel CreateSplitRow(Control main, Control side)
+    {
+        var row = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 0, 0, 8)
+        };
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 46));
+        row.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        main.Dock = DockStyle.Fill;
+        main.Margin = new Padding(0, 0, 8, 0);
+        side.Dock = DockStyle.Fill;
+        side.Margin = new Padding(0);
+
+        row.Controls.Add(main, 0, 0);
+        row.Controls.Add(side, 1, 0);
+        return row;
     }
 
     private static TableLayoutPanel CreateStack()
@@ -367,7 +572,8 @@ public sealed partial class MainForm
 
     private static Label CreateLabel(string text, Font font, Color color, int bottomMargin) => new()
     {
-        Text = text,
+        Text = Localization.T(text),
+        Tag = text,
         Font = font,
         ForeColor = color,
         BackColor = Color.Transparent,
@@ -380,14 +586,37 @@ public sealed partial class MainForm
 
     private static ThemedButton CreateButton(string text, ButtonVariant variant, EventHandler onClick)
     {
-        var button = new ThemedButton { Text = text, Variant = variant };
+        var button = new ThemedButton { Text = Localization.T(text), Tag = text, Variant = variant };
         button.Click += onClick;
         return button;
     }
 
     private static ThemedComboBox CreateCombo() => new();
 
-    private static RoundedTextBox CreateTextBox(string placeholder) => new() { PlaceholderText = placeholder };
+    private RoundedTextBox CreateTextBox(string placeholder)
+    {
+        var box = new RoundedTextBox { PlaceholderText = Localization.T(placeholder) };
+        localizedPlaceholders.Add((box, placeholder));
+        return box;
+    }
+
+    private void SetToolTip(Control control, string text)
+    {
+        toolTip.SetToolTip(control, Localization.T(text));
+        localizedToolTips.Add((control, text));
+    }
+
+    private ToggleSwitch CreateSettingToggle(string text, EventHandler changed)
+    {
+        var toggle = new ToggleSwitch
+        {
+            Text = Localization.T(text),
+            Tag = text,
+            BackColor = UiTheme.Surface
+        };
+        toggle.CheckedChanged += changed;
+        return toggle;
+    }
 
     private static ThemedNumericBox CreateNumeric(
         decimal minimum,
