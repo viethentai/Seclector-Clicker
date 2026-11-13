@@ -7,7 +7,6 @@ using AutoClickSelector.UI.Themes;
 
 namespace AutoClickSelector.UI.Controls;
 
-/// <summary>Ô số tự vẽ: nhập trực tiếp, hai nút tăng/giảm (giữ để lặp), mũi tên bàn phím.</summary>
 public sealed class ThemedNumericBox : Control
 {
     private const int CornerRadius = 8;
@@ -58,6 +57,7 @@ public sealed class ThemedNumericBox : Control
 
         input.Text = FormatValue(value);
         LayoutInput();
+        Height = 32;
     }
 
     public event EventHandler? ValueChanged;
@@ -247,7 +247,6 @@ public sealed class ThemedNumericBox : Control
         repeatTimer.Stop();
     }
 
-    /// <summary>Đọc lại chữ người dùng vừa gõ; nếu không hợp lệ thì khôi phục giá trị cũ.</summary>
     private void CommitText()
     {
         if (decimal.TryParse(input.Text, NumberStyles.Number, CultureInfo.CurrentCulture, out decimal parsed))
