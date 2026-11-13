@@ -33,6 +33,7 @@ public sealed partial class MainForm : Form
     private Task? autoClickTask;
     private Task? keywordWatcherTask;
     private Task? manualClickTask;
+    private CancellationTokenSource? manualClickCancellation;
     private bool shutdownInProgress;
     private bool shutdownComplete;
     private string keywordSelector = string.Empty;
@@ -856,15 +857,25 @@ public sealed partial class MainForm : Form
         }
 
         btnClick.Enabled = false;
+        var cancellation = new CancellationTokenSource();
+        manualClickCancellation = cancellation;
         try
         {
             Log(ActivityLevel.Process, $"Đang chờ Selector tối đa {numWaitTimeout.Value} giây...");
-            Task clickTask = browser.ClickAsync(txtSelector.Text, GetWaitTimeoutMilliseconds());
+            Task clickTask = browser.ClickAsync(
+                txtSelector.Text,
+                GetWaitTimeoutMilliseconds(),
+                cancellation.Token);
             manualClickTask = clickTask;
             await clickTask;
 
             RecordClick(true);
             Log(ActivityLevel.Success, "Click thành công.");
+        }
+        catch (OperationCanceledException)
+        {
+            if (!shutdownInProgress)
+                Log(ActivityLevel.Info, "Đã hủy thao tác Click.");
         }
         catch (SelectorWaitTimeoutException)
         {
@@ -879,6 +890,9 @@ public sealed partial class MainForm : Form
         finally
         {
             manualClickTask = null;
+            if (ReferenceEquals(manualClickCancellation, cancellation))
+                manualClickCancellation = null;
+            cancellation.Dispose();
             clickGate.Release();
             UpdateControlStates();
         }
@@ -1142,6 +1156,7 @@ public sealed partial class MainForm : Form
         Enabled = false;
         autoClickCancellation?.Cancel();
         keywordCancellation?.Cancel();
+        manualClickCancellation?.Cancel();
         statsTimer.Stop();
         themeTimer.Stop();
 
@@ -1160,6 +1175,7 @@ public sealed partial class MainForm : Form
 
             autoClickCancellation?.Cancel();
             keywordCancellation?.Cancel();
+            manualClickCancellation?.Cancel();
 
             Task[] activeTasks = new[] { autoClickTask, keywordWatcherTask, manualClickTask }
                 .Where(task => task != null)
