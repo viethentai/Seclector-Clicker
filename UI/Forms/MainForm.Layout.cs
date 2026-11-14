@@ -245,7 +245,7 @@ public sealed partial class MainForm
         bodyHost.Controls.Add(bodyBar);
         bodyHost.Resize += (_, _) => LayoutBody();
 
-        WheelRouter.Register(bodyHost, delta => bodyBar.ScrollBy(-delta / 120 * WheelStepPixels));
+        WheelRouter.Register(bodyHost, delta => bodyBar.ScrollBy(-delta * WheelStepPixels / 120));
         return bodyHost;
     }
 
@@ -490,6 +490,7 @@ public sealed partial class MainForm
             Localization.T("Đang xử lý")
         });
         cmbLogFilter.SelectedIndex = selected < 0 || selected >= cmbLogFilter.Items.Count ? 0 : selected;
+        cmbLogFilter.Invalidate();
     }
 
     private void RefreshBrowserItems()
@@ -507,6 +508,7 @@ public sealed partial class MainForm
             Localization.T("Trình duyệt khác")
         });
         cmbBrowser.SelectedIndex = selected < 0 || selected >= cmbBrowser.Items.Count ? 0 : selected;
+        cmbBrowser.Invalidate();
     }
 
     private void RefreshIntervalUnitItems()
@@ -518,6 +520,7 @@ public sealed partial class MainForm
         cmbIntervalUnit.Items.Clear();
         cmbIntervalUnit.Items.AddRange(new object[] { Localization.T(UnitSecond), Localization.T(UnitMinute) });
         cmbIntervalUnit.SelectedIndex = selected < 0 ? 0 : selected;
+        cmbIntervalUnit.Invalidate();
     }
 
     private static TableLayoutPanel CreateSplitRow(Control main, Control side)
