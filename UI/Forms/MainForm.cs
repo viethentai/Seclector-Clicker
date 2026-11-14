@@ -220,7 +220,8 @@ public sealed partial class MainForm : Form
 
     private void UpdateStatistics()
     {
-        string elapsed = runStopwatch.Elapsed.ToString(@"hh\:mm\:ss");
+        TimeSpan runTime = runStopwatch.Elapsed;
+        string elapsed = $"{(int)runTime.TotalHours:00}:{runTime.Minutes:00}:{runTime.Seconds:00}";
         lblStats.Text = string.Format(
             Localization.T("Đã click: {0}  |  Thành công: {1}  |  Lỗi: {2}  |  Thời gian: {3}"),
             totalClicks,
