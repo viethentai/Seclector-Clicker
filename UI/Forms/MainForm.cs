@@ -19,6 +19,7 @@ public sealed partial class MainForm : Form
 
     private readonly BrowserController browser = new();
     private readonly SemaphoreSlim clickGate = new(1, 1);
+    private readonly SemaphoreSlim browserRecoveryGate = new(1, 1);
     private readonly Dictionary<string, string> savedSelectors = new(StringComparer.OrdinalIgnoreCase);
     private readonly Stopwatch runStopwatch = new();
     private readonly System.Windows.Forms.Timer statsTimer = new() { Interval = 1000 };
@@ -348,49 +349,75 @@ public sealed partial class MainForm : Form
 
     private async Task<bool> TryRecoverBrowserAsync(CancellationToken token)
     {
-        for (int attempt = 1; attempt <= 3; attempt++)
+        try
         {
-            if (token.IsCancellationRequested)
-                return false;
-
-            try
-            {
-                Log(ActivityLevel.Process, Localization.F("Mất kết nối trình duyệt. Đang thử kết nối lại ({0}/3)...", attempt));
-                await Task.Delay(TimeSpan.FromSeconds(attempt), token);
-
-                if (attempt == 2)
-                    await RelaunchBrowserIfClosedAsync();
-
-                await browser.ConnectAsync();
-
-                if (!await SelectRecoveredTabAsync(token))
-                {
-                    Log(ActivityLevel.Warning, Localization.T("Chưa chọn được tab sau khi kết nối lại."));
-                    continue;
-                }
-
-                await RefreshTabsAsync();
-                UpdateConnectionStatus();
-                SaveSettings(settings => settings.LastTabUrl = lastTabUrl);
-                return true;
-            }
-            catch (OperationCanceledException)
-            {
-                return false;
-            }
-            catch (Exception exception)
-            {
-                Log(ActivityLevel.Warning, Localization.F("Kết nối lại thất bại: {0}", DescribeError(exception)));
-            }
+            await browserRecoveryGate.WaitAsync(token);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
         }
 
-        return false;
+        try
+        {
+            if (browser.IsConnected)
+                return true;
+
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                if (token.IsCancellationRequested)
+                    return false;
+
+                try
+                {
+                    Log(ActivityLevel.Process, Localization.F("Mất kết nối trình duyệt. Đang thử kết nối lại ({0}/3)...", attempt));
+                    await Task.Delay(TimeSpan.FromSeconds(attempt), token);
+
+                    if (attempt == 2)
+                        await RelaunchBrowserIfClosedAsync();
+
+                    BrowserLauncher.DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
+                    if (endpoint == null || !BrowserLauncher.MatchesBrowserFamily(endpoint, Settings.BrowserFamily))
+                    {
+                        if (endpoint != null)
+                            Log(ActivityLevel.Warning, Localization.F("Cổng kết nối hiện thuộc trình duyệt khác: {0}.", endpoint.Browser));
+                        continue;
+                    }
+
+                    await browser.ConnectAsync();
+
+                    if (!await SelectRecoveredTabAsync(token))
+                    {
+                        Log(ActivityLevel.Warning, Localization.T("Chưa chọn được tab sau khi kết nối lại."));
+                        continue;
+                    }
+
+                    await RefreshTabsAsync();
+                    UpdateConnectionStatus();
+                    SaveSettings(settings => settings.LastTabUrl = lastTabUrl);
+                    return true;
+                }
+                catch (OperationCanceledException)
+                {
+                    return false;
+                }
+                catch (Exception exception)
+                {
+                    Log(ActivityLevel.Warning, Localization.F("Kết nối lại thất bại: {0}", DescribeError(exception)));
+                }
+            }
+
+            return false;
+        }
+        finally
+        {
+            browserRecoveryGate.Release();
+        }
     }
 
     private async Task RelaunchBrowserIfClosedAsync()
     {
-        string? executable = BrowserLauncher.FindExecutable(Settings.BrowserFamily);
-
+        string family = Settings.BrowserFamily;        string? executable = BrowserLauncher.FindExecutable(family);
         if (executable is null || BrowserLauncher.IsBrowserRunning(executable))
             return;
 
@@ -400,7 +427,7 @@ public sealed partial class MainForm : Form
             BrowserLauncher.Start(executable);
 
             bool ready = await BrowserLauncher.WaitForDebugPortAsync(
-                BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15));
+                BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15), family);
 
             if (!ready)
                 Log(ActivityLevel.Warning, Localization.T("Cổng kết nối chưa sẵn sàng sau 15 giây."));
@@ -442,10 +469,7 @@ public sealed partial class MainForm : Form
             return tabs.FirstOrDefault();
 
         return tabs.FirstOrDefault(tab =>
-                   string.Equals(tab.Url, lastTabUrl, StringComparison.OrdinalIgnoreCase))
-               ?? tabs.FirstOrDefault(tab =>
-                   tab.Url.Length > 0 &&
-                   tab.Url.StartsWith(lastTabUrl, StringComparison.OrdinalIgnoreCase));
+            string.Equals(tab.Url, lastTabUrl, StringComparison.OrdinalIgnoreCase));
     }
 
     private void CreateTrayIcon()
@@ -603,17 +627,20 @@ public sealed partial class MainForm : Form
             return;
         }
 
-        try
+        if (!BrowserLauncher.SaveExecutable(dialog.FileName))
         {
-            BrowserLauncher.SaveExecutable(dialog.FileName);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            Log(ActivityLevel.Warning, Localization.F("Không lưu được đường dẫn trình duyệt: {0}", DescribeError(exception)));
+            Log(ActivityLevel.Warning, Localization.T("Không lưu được đường dẫn trình duyệt. Hãy kiểm tra quyền ghi vào thư mục dữ liệu ứng dụng."));
+            return;
         }
 
-        SettingsStore.Current.BrowserFamily = "custom";
-        SettingsStore.Save();
+        string previousFamily = Settings.BrowserFamily;
+        Settings.BrowserFamily = "custom";
+        if (!SettingsStore.Save())
+        {
+            Settings.BrowserFamily = previousFamily;
+            Log(ActivityLevel.Warning, Localization.T("Không lưu được lựa chọn trình duyệt. Cài đặt trước đó vẫn được giữ."));
+            return;
+        }
 
         isLoadingSettings = true;
         try
@@ -740,6 +767,21 @@ public sealed partial class MainForm : Form
         try
         {
             Log(ActivityLevel.Process, Localization.T("Đang kết nối trình duyệt để quét tab..."));
+            BrowserLauncher.DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
+            if (endpoint == null)
+            {
+                Log(ActivityLevel.Error, Localization.T("Không tìm thấy trình duyệt hợp lệ đang mở cổng kết nối 9222."));
+                return;
+            }
+
+            if (!BrowserLauncher.MatchesBrowserFamily(endpoint, Settings.BrowserFamily))
+            {
+                Log(ActivityLevel.Error, Localization.F(
+                    "Cổng 9222 đang thuộc trình duyệt không khớp lựa chọn hiện tại: {0}. Hãy đóng trình duyệt đó hoặc chọn đúng loại trình duyệt.",
+                    endpoint.Browser));
+                return;
+            }
+
             await browser.ConnectAsync();
             await RefreshTabsAsync();
         }
@@ -773,10 +815,8 @@ public sealed partial class MainForm : Form
         catch (Exception exception)
         {
             Log(ActivityLevel.Error, Localization.F("Không mở được trình duyệt: {0}", DescribeError(exception)));
-        }
-        finally
-        {
-            isOpeningBrowser = false;
+        }        finally
+        {            isOpeningBrowser = false;
             btnOpenBrowser.Text = Localization.T(OpenBrowserIdleText);
             UpdateControlStates();
             UpdateConnectionStatus();
@@ -793,8 +833,17 @@ public sealed partial class MainForm : Form
             return;
         }
 
-        if (await BrowserLauncher.IsDebugPortOpenAsync())
+        BrowserLauncher.DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
+        if (endpoint != null)
         {
+            if (!BrowserLauncher.MatchesBrowserFamily(endpoint, family))
+            {
+                Log(ActivityLevel.Error, Localization.F(
+                    "Cổng 9222 đang thuộc trình duyệt không khớp lựa chọn hiện tại: {0}. Hãy đóng trình duyệt đó hoặc chọn đúng loại trình duyệt.",
+                    endpoint.Browser));
+                return;
+            }
+
             Log(ActivityLevel.Success, Localization.T("Trình duyệt đã mở sẵn với cổng kết nối. Hãy bấm 'Quét tab' để chọn tab."));
             return;
         }
@@ -811,7 +860,11 @@ public sealed partial class MainForm : Form
                 return;
             }
 
-            BrowserLauncher.SaveExecutable(executable);
+            if (!BrowserLauncher.SaveExecutable(executable))
+            {
+                Log(ActivityLevel.Warning, Localization.T("Không lưu được đường dẫn trình duyệt. Hãy kiểm tra quyền ghi vào thư mục dữ liệu ứng dụng."));
+                return;
+            }
         }
 
         if (executable == null)
@@ -863,7 +916,7 @@ public sealed partial class MainForm : Form
         }
 
         bool ready = await BrowserLauncher.WaitForDebugPortAsync(
-            BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15));
+            BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15), family);
 
         if (ready)
         {
@@ -871,8 +924,21 @@ public sealed partial class MainForm : Form
         }
         else
         {
-            Log(ActivityLevel.Error, Localization.T(
-                "Đã gọi lệnh mở nhưng cổng kết nối chưa sẵn sàng. Có thể trình duyệt còn chạy nền từ phiên trước, hoặc phiên bản trình duyệt không cho phép cổng gỡ lỗi với hồ sơ mặc định."));
+            BrowserLauncher.DebugEndpointInfo? endpointAfterLaunch =
+                await BrowserLauncher.GetDebugEndpointInfoAsync();
+
+            if (endpointAfterLaunch != null)
+            {
+                Log(ActivityLevel.Error, Localization.F(
+                    "Cổng 9222 đã mở nhưng danh tính trình duyệt không khớp lựa chọn. Browser: {0}; User-Agent: {1}",
+                    endpointAfterLaunch.Browser,
+                    endpointAfterLaunch.UserAgent));
+            }
+            else
+            {
+                Log(ActivityLevel.Error, Localization.T(
+                    "Đã gọi lệnh mở nhưng cổng kết nối chưa sẵn sàng. Có thể trình duyệt còn chạy nền từ phiên trước, hoặc phiên bản trình duyệt không cho phép cổng gỡ lỗi với hồ sơ mặc định."));
+            }
         }
     }
 
@@ -1161,10 +1227,8 @@ public sealed partial class MainForm : Form
             Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập tên cho Selector."));
             return;
         }
-
         if (string.IsNullOrWhiteSpace(txtSelector.Text))
-        {
-            Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập CSS Selector."));
+        {            Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập CSS Selector."));
             return;
         }
 
@@ -1560,12 +1624,10 @@ public sealed partial class MainForm : Form
         finally
         {
             if (ReferenceEquals(keywordCancellation, cancellation))
-                keywordCancellation = null;
-            cancellation.Dispose();
+                keywordCancellation = null;            cancellation.Dispose();
 
             SetKeywordState(KeywordState.Off);
-            SetKeywordToggle(false);
-            UpdateControlStates();
+            SetKeywordToggle(false);            UpdateControlStates();
             UpdateConnectionStatus();
             Log(ActivityLevel.Info, Localization.T("Click khi có từ khóa: đã tắt."));
         }
@@ -1736,12 +1798,29 @@ public sealed partial class MainForm : Form
         {
             Task? validationTask = startValidationCompletion?.Task;
             if (validationTask != null)
-                await validationTask;
+            {
+                try
+                {
+                    await validationTask.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (TimeoutException)
+                {
+                    Log(ActivityLevel.Warning, Localization.T("Đang chờ kiểm tra Selector kết thúc khi đóng ứng dụng."));
+                }
+            }
 
             autoClickCancellation?.Cancel();
             keywordCancellation?.Cancel();
             manualClickCancellation?.Cancel();
-            await browser.CancelPickElementAsync();
+
+            try
+            {
+                await browser.CancelPickElementAsync().WaitAsync(TimeSpan.FromSeconds(3));
+            }
+            catch (TimeoutException)
+            {
+                Log(ActivityLevel.Warning, Localization.T("Không thể hủy thao tác chọn phần tử kịp thời."));
+            }
 
             Task[] activeTasks = activeBrowserOperations
                 .Concat(new[] { autoClickTask, keywordWatcherTask, manualClickTask })
@@ -1751,7 +1830,16 @@ public sealed partial class MainForm : Form
                 .ToArray();
 
             if (activeTasks.Length > 0)
-                await Task.WhenAll(activeTasks);
+            {
+                try
+                {
+                    await Task.WhenAll(activeTasks).WaitAsync(TimeSpan.FromSeconds(10));
+                }
+                catch (TimeoutException)
+                {
+                    Log(ActivityLevel.Warning, Localization.T("Một số thao tác trình duyệt vẫn chưa kết thúc. Ứng dụng sẽ tiếp tục đóng."));
+                }
+            }
         }
         catch (Exception exception)
         {
@@ -1761,7 +1849,11 @@ public sealed partial class MainForm : Form
         {
             try
             {
-                await browser.StopAsync();
+                await browser.StopAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException)
+            {
+                Log(ActivityLevel.Warning, Localization.T("Hết thời gian chờ khi đóng kết nối trình duyệt."));
             }
             catch (Exception exception)
             {

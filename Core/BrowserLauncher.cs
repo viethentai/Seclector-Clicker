@@ -26,17 +26,37 @@ internal static class BrowserLauncher
         return null;
     }
 
-    public static void SaveExecutable(string path)
+    public static bool SaveExecutable(string path)
     {
         string file = SettingsFile;
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        File.WriteAllText(file, JsonSerializer.Serialize(new BrowserSettings(path)));
+        string temporary = file + ".tmp";
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(temporary, JsonSerializer.Serialize(new BrowserSettings(path)));
+            File.Move(temporary, file, overwrite: true);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            try
+            {
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
+            }
+            catch (IOException)
+            {
+            }
+
+            return false;
+        }
     }
 
-    public static async Task<bool> IsDebugPortOpenAsync(int port = DebugPort)
+    public static async Task<DebugEndpointInfo?> GetDebugEndpointInfoAsync(int port = DebugPort)
     {
         if (port is < 1 or > 65535)
-            return false;
+            return null;
 
         try
         {
@@ -44,34 +64,83 @@ internal static class BrowserLauncher
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
             string json = await client.GetStringAsync($"http://127.0.0.1:{port}/json/version", timeout.Token);
             using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
 
-            if (!document.RootElement.TryGetProperty("Browser", out JsonElement browser)
+            if (!root.TryGetProperty("Browser", out JsonElement browser)
                 || browser.ValueKind != JsonValueKind.String
                 || string.IsNullOrWhiteSpace(browser.GetString()))
-                return false;
+                return null;
 
-            if (!document.RootElement.TryGetProperty("webSocketDebuggerUrl", out JsonElement socket)
+            if (!root.TryGetProperty("webSocketDebuggerUrl", out JsonElement socket)
                 || socket.ValueKind != JsonValueKind.String
-                || !Uri.TryCreate(socket.GetString(), UriKind.Absolute, out Uri? socketUri))
-                return false;
+                || !Uri.TryCreate(socket.GetString(), UriKind.Absolute, out Uri? socketUri)
+                || (socketUri.Scheme != "ws" && socketUri.Scheme != "wss")
+                || !socketUri.IsLoopback)
+                return null;
 
-            return (socketUri.Scheme == "ws" || socketUri.Scheme == "wss")
-                && socketUri.IsLoopback;
+            string userAgent = root.TryGetProperty("User-Agent", out JsonElement agent)
+                && agent.ValueKind == JsonValueKind.String
+                    ? agent.GetString() ?? string.Empty
+                    : string.Empty;
+
+            return new DebugEndpointInfo(browser.GetString()!, userAgent);
         }
         catch (Exception exception) when (
             exception is HttpRequestException or TaskCanceledException or JsonException or UriFormatException)
         {
-            return false;
+            return null;
         }
     }
 
-    public static async Task<bool> WaitForDebugPortAsync(int port, TimeSpan timeout)
+    public static bool MatchesBrowserFamily(DebugEndpointInfo endpoint, string family)
+    {
+        if (IsFamily(family, "custom"))
+            return true;
+
+        string identity = endpoint.Browser + " " + endpoint.UserAgent;
+
+        if (IsFamily(family, "edge"))
+            return identity.Contains("Edg/", StringComparison.OrdinalIgnoreCase)
+                || identity.Contains("Microsoft Edge", StringComparison.OrdinalIgnoreCase);
+
+        if (IsFamily(family, "chrome"))
+            return identity.Contains("Chrome/", StringComparison.OrdinalIgnoreCase)
+                && !identity.Contains("Edg/", StringComparison.OrdinalIgnoreCase)
+                && !HasCocCocMarker(identity);
+
+        // Coc Coc is Chromium based and its debug endpoint normally reports itself as
+        // "Chrome/x.y.z" without any Coc Coc marker, so accept any non-Edge Chromium identity.
+        if (IsFamily(family, "coccoc"))
+            return HasCocCocMarker(identity)
+                || (identity.Contains("Chrome/", StringComparison.OrdinalIgnoreCase)
+                    && !identity.Contains("Edg/", StringComparison.OrdinalIgnoreCase));
+
+        return false;
+    }
+
+    private static bool HasCocCocMarker(string identity) =>
+        identity.Contains("CocCoc", StringComparison.OrdinalIgnoreCase)
+        || identity.Contains("coc_coc", StringComparison.OrdinalIgnoreCase);
+
+    public static async Task<bool> IsDebugPortOpenAsync(
+        int port = DebugPort,
+        string? expectedFamily = null)
+    {
+        DebugEndpointInfo? endpoint = await GetDebugEndpointInfoAsync(port);
+        return endpoint != null &&
+            (expectedFamily == null || MatchesBrowserFamily(endpoint, expectedFamily));
+    }
+
+    public static async Task<bool> WaitForDebugPortAsync(
+        int port,
+        TimeSpan timeout,
+        string? expectedFamily = null)
     {
         DateTime deadline = DateTime.UtcNow + timeout;
 
         while (DateTime.UtcNow < deadline)
         {
-            if (await IsDebugPortOpenAsync(port))
+            if (await IsDebugPortOpenAsync(port, expectedFamily))
                 return true;
 
             await Task.Delay(300);
@@ -220,6 +289,8 @@ internal static class BrowserLauncher
             return null;
         }
     }
+
+    internal sealed record DebugEndpointInfo(string Browser, string UserAgent);
 
     private sealed record BrowserSettings(string? BrowserPath);
 }

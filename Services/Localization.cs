@@ -118,6 +118,12 @@ public static class Localization
         ["Hãy chọn trình duyệt cần mở trong ô 'Chọn trình duyệt'."] = "Pick the browser to open in the 'Browser to open' list.",
         ["Trình duyệt đã mở sẵn với cổng kết nối. Hãy bấm 'Quét tab' để chọn tab."] =
             "The browser is already running with the control port. Click 'Scan tabs' to pick a tab.",
+        ["Không tìm thấy trình duyệt hợp lệ đang mở cổng kết nối 9222."] =
+            "No valid browser was found listening on control port 9222.",
+        ["Cổng 9222 đang thuộc trình duyệt không khớp lựa chọn hiện tại: {0}. Hãy đóng trình duyệt đó hoặc chọn đúng loại trình duyệt."] =
+            "Control port 9222 belongs to a browser that does not match the current selection: {0}. Close that browser or select the correct browser family.",
+        ["Cổng kết nối hiện thuộc trình duyệt khác: {0}."] =
+            "The control port currently belongs to a different browser: {0}.",
         ["Chưa chọn đường dẫn trình duyệt nên đã hủy."] = "No browser path selected, cancelled.",
         ["Không tìm thấy trình duyệt đã chọn. Hãy bấm nút '...' để chọn đường dẫn."] =
             "The selected browser was not found. Click '...' to pick its path.",
@@ -138,6 +144,8 @@ public static class Localization
             "The browser started successfully. Click 'Scan tabs' to pick a tab.",
         ["Đã gọi lệnh mở nhưng cổng kết nối chưa sẵn sàng. Có thể trình duyệt còn chạy nền từ phiên trước, hoặc phiên bản trình duyệt không cho phép cổng gỡ lỗi với hồ sơ mặc định."] =
             "The browser was launched but the control port is not ready. It may still be running in the background, or this browser version does not allow the debug port with the default profile.",
+        ["Cổng 9222 đã mở nhưng danh tính trình duyệt không khớp lựa chọn. Browser: {0}; User-Agent: {1}"] =
+            "Port 9222 is open, but the browser identity does not match the selected browser. Browser: {0}; User-Agent: {1}",
         ["Đang kết nối lại..."] = "Reconnecting...",
         ["Mất kết nối trình duyệt. Đang thử kết nối lại ({0}/3)..."] = "Browser connection lost. Reconnecting ({0}/3)...",
         ["Chưa chọn được tab sau khi kết nối lại."] = "Could not select a tab after reconnecting.",
@@ -152,6 +160,10 @@ public static class Localization
         ["Trình duyệt sẽ mở: {0}"] = "Browser to open: {0}",
         ["Chương trình (*.exe)|*.exe"] = "Programs (*.exe)|*.exe",
         ["Không lưu được đường dẫn trình duyệt: {0}"] = "Could not save the browser path: {0}",
+        ["Không lưu được đường dẫn trình duyệt. Hãy kiểm tra quyền ghi vào thư mục dữ liệu ứng dụng."] =
+            "Could not save the browser path. Check write permissions for the application data folder.",
+        ["Không lưu được lựa chọn trình duyệt. Cài đặt trước đó vẫn được giữ."] =
+            "Could not save the browser selection. The previous setting has been kept.",
         ["Đã chọn trình duyệt: {0}"] = "Browser selected: {0}",
         ["Đã xuất nhật ký: {0}"] = "Log exported: {0}",
         ["Không xuất được nhật ký: {0}"] = "Could not export the log: {0}",
@@ -236,6 +248,14 @@ public static class Localization
         ["Đã chuyển sang giao diện sáng."] = "Switched to light mode.",
         ["Một tác vụ nền kết thúc khi đóng ứng dụng: {0}"] = "A background task ended while closing: {0}",
         ["Không thể đóng hoàn toàn kết nối trình duyệt: {0}"] = "Could not fully close the browser connection: {0}",
+        ["Đang chờ kiểm tra Selector kết thúc khi đóng ứng dụng."] =
+            "Waiting for selector validation to finish before closing the app.",
+        ["Không thể hủy thao tác chọn phần tử kịp thời."] =
+            "Could not cancel the element-picking operation in time.",
+        ["Một số thao tác trình duyệt vẫn chưa kết thúc. Ứng dụng sẽ tiếp tục đóng."] =
+            "Some browser operations are still running. The app will continue closing.",
+        ["Hết thời gian chờ khi đóng kết nối trình duyệt."] =
+            "Timed out while closing the browser connection.",
 
         ["Đã click Selector."] = "Clicked the selector.",
         ["Không thấy Selector hiển thị sau {0} giây chờ. Dừng chạy thao tác để tránh lặp lại."] =

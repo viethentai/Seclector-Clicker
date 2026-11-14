@@ -197,8 +197,7 @@ public sealed class BrowserController
             if (await element.IsVisibleAsync())
                 return;
 
-            if (DateTime.UtcNow >= deadline)
-                throw new SelectorWaitTimeoutException(waitMilliseconds);
+            if (DateTime.UtcNow >= deadline)                throw new SelectorWaitTimeoutException(waitMilliseconds);
 
             await Task.Delay(100, cancellationToken);
         }
@@ -279,13 +278,31 @@ public sealed class BrowserController
                 (sel) => {
                     const el = document.querySelector(sel);
                     if (!el) return null;
-                    const rect = el.getBoundingClientRect();
+
+                    const stateKey = Symbol.for("AutoClickSelector.elementSignatures");
+                    let state = window[stateKey];
+                    if (!state) {
+                        state = { ids: new WeakMap(), nextId: 1, documentId: String(performance.timeOrigin) };
+                        Object.defineProperty(window, stateKey, { value: state });
+                    }
+
+                    let elementId = state.ids.get(el);
+                    if (elementId === undefined) {
+                        elementId = state.nextId++;
+                        state.ids.set(el, elementId);
+                    }
+
                     const text = String(el.innerText || el.value || "").trim().slice(0, 60);
                     const className = typeof el.className === "string" ? el.className : "";
                     const disabled = el.disabled === true || el.getAttribute("aria-disabled") === "true";
+                    const href = el.getAttribute("href") || "";
+                    const ariaLabel = el.getAttribute("aria-label") || "";
+                    const pressed = el.getAttribute("aria-pressed") || "";
+                    const checked = el.checked === true ? "1" : "0";
+
                     return [
-                        el.tagName, el.id || "", className, disabled ? "1" : "0",
-                        Math.round(rect.width) + "x" + Math.round(rect.height), text
+                        state.documentId, elementId, el.tagName, el.id || "", className,
+                        disabled ? "1" : "0", checked, pressed, href, ariaLabel, text
                     ].join("|");
                 }
                 """,
@@ -397,7 +414,6 @@ public sealed class BrowserController
                 WaitUntil = WaitUntilState.DOMContentLoaded,
                 Timeout = 30_000
             }).WaitAsync(cancellationToken);
-
             cancellationToken.ThrowIfCancellationRequested();
             page = newPage;
             selected = true;
@@ -450,12 +466,63 @@ public sealed class BrowserController
     private async Task<string[]> EvaluateOnScreenTextAsync(IReadOnlyList<string> keywords, bool list)
     {
         IPage currentPage = RequireSelectedPage();
+        var results = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
 
-        string[]? result = await currentPage.MainFrame.EvaluateAsync<string[]>(
-            OnScreenTextScript,
-            new { keywords = keywords.ToArray(), list });
+        foreach (IFrame frame in currentPage.Frames)
+        {
+            if (frame.IsDetached)
+                continue;
 
-        return result ?? Array.Empty<string>();
+            IElementHandle? frameElement = null;
+            try
+            {
+                if (frame.ParentFrame != null)
+                {
+                    frameElement = await frame.FrameElementAsync();
+                    if (!await frameElement.IsVisibleAsync())
+                        continue;
+
+                    var bounds = await frameElement.BoundingBoxAsync();
+                    var viewport = currentPage.ViewportSize;
+                    if (bounds == null || viewport == null
+                        || bounds.X + bounds.Width <= 0
+                        || bounds.Y + bounds.Height <= 0
+                        || bounds.X >= viewport.Width
+                        || bounds.Y >= viewport.Height)
+                        continue;
+                }
+
+                string[]? frameResults = await frame.EvaluateAsync<string[]>(
+                    OnScreenTextScript,
+                    new { keywords = keywords.ToArray(), list });
+
+                if (frameResults == null || frameResults.Length == 0)
+                    continue;
+
+                if (!list)
+                    return frameResults;
+
+                foreach (string line in frameResults)
+                {
+                    if (seen.Add(line))
+                        results.Add(line);
+
+                    if (results.Count >= 40)
+                        return results.ToArray();
+                }
+            }
+            catch (PlaywrightException)
+            {
+            }
+            finally
+            {
+                if (frameElement != null)
+                    await frameElement.DisposeAsync();
+            }
+        }
+
+        return results.ToArray();
     }
 
     private const string OnScreenTextScript = """
@@ -496,27 +563,42 @@ public sealed class BrowserController
 
             const results = [];
             const seen = new Set();
-            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-            let node;
-            while ((node = walker.nextNode())) {
-                const raw = (node.nodeValue || "").trim();
-                if (!raw) continue;
+            const roots = [document.body];
+            const visitedRoots = new Set();
 
-                const tag = node.parentElement ? node.parentElement.tagName : "";
-                if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT") continue;
+            while (roots.length > 0 && results.length < 40) {
+                const root = roots.shift();
+                if (!root || visitedRoots.has(root)) continue;
+                visitedRoots.add(root);
 
-                const text = normalize(raw);
-                const hit = needles.find(needle => text.includes(needle.key));
-                if (!arg.list && !hit) continue;
-                if (!onScreen(node)) continue;
+                const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+                let node;
+                while ((node = walker.nextNode())) {
+                    const raw = (node.nodeValue || "").trim();
+                    if (!raw) continue;
 
-                if (!arg.list) return [hit.original, raw.slice(0, 80)];
+                    const tag = node.parentElement ? node.parentElement.tagName : "";
+                    if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT") continue;
 
-                const snippet = raw.slice(0, 60);
-                if (seen.has(snippet)) continue;
-                seen.add(snippet);
-                results.push((hit ? "★ " : "") + snippet);
-                if (results.length >= 40) break;
+                    const text = normalize(raw);
+                    const hit = needles.find(needle => text.includes(needle.key));
+                    if (!arg.list && !hit) continue;
+                    if (!onScreen(node)) continue;
+
+                    if (!arg.list) return [hit.original, raw.slice(0, 80)];
+
+                    const snippet = raw.slice(0, 60);
+                    if (seen.has(snippet)) continue;
+                    seen.add(snippet);
+                    results.push((hit ? "★ " : "") + snippet);
+                    if (results.length >= 40) break;
+                }
+
+                const elements = root.querySelectorAll ? root.querySelectorAll("*") : [];
+                for (const element of elements) {
+                    if (element.shadowRoot)
+                        roots.push(element.shadowRoot);
+                }
             }
 
             return arg.list ? results : [];
@@ -597,7 +679,6 @@ public sealed class BrowserController
                     const byId = '#' + CSS.escape(element.id);
                     if (document.querySelectorAll(byId).length === 1) return byId;
                 }
-
                 const tag = element.localName;
                 for (const attr of ['data-testid', 'data-test', 'name', 'aria-label']) {
                     const value = element.getAttribute(attr);
