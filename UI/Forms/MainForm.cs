@@ -451,10 +451,7 @@ public sealed partial class MainForm : Form
             return tabs.FirstOrDefault();
 
         return tabs.FirstOrDefault(tab =>
-                   string.Equals(tab.Url, lastTabUrl, StringComparison.OrdinalIgnoreCase))
-               ?? tabs.FirstOrDefault(tab =>
-                   tab.Url.Length > 0 &&
-                   tab.Url.StartsWith(lastTabUrl, StringComparison.OrdinalIgnoreCase));
+            string.Equals(tab.Url, lastTabUrl, StringComparison.OrdinalIgnoreCase));
     }
 
     private void CreateTrayIcon()
