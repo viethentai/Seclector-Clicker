@@ -361,7 +361,7 @@ public sealed partial class MainForm : Form
                 if (attempt == 2)
                     await RelaunchBrowserIfClosedAsync();
 
-                DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
+                BrowserLauncher.DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
                 if (endpoint == null || !BrowserLauncher.MatchesBrowserFamily(endpoint, Settings.BrowserFamily))
                 {
                     if (endpoint != null)
@@ -397,8 +397,7 @@ public sealed partial class MainForm : Form
 
     private async Task RelaunchBrowserIfClosedAsync()
     {
-        string family = Settings.BrowserFamily;
-        string? executable = BrowserLauncher.FindExecutable(family);
+        string family = Settings.BrowserFamily;        string? executable = BrowserLauncher.FindExecutable(family);
 
         if (executable is null || BrowserLauncher.IsBrowserRunning(executable))
             return;
@@ -749,7 +748,7 @@ public sealed partial class MainForm : Form
         try
         {
             Log(ActivityLevel.Process, Localization.T("Đang kết nối trình duyệt để quét tab..."));
-            DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
+            BrowserLauncher.DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
             if (endpoint == null)
             {
                 Log(ActivityLevel.Error, Localization.T("Không tìm thấy trình duyệt hợp lệ đang mở cổng kết nối 9222."));
@@ -797,8 +796,7 @@ public sealed partial class MainForm : Form
         catch (Exception exception)
         {
             Log(ActivityLevel.Error, Localization.F("Không mở được trình duyệt: {0}", DescribeError(exception)));
-        }
-        finally
+        }        finally
         {
             isOpeningBrowser = false;
             btnOpenBrowser.Text = Localization.T(OpenBrowserIdleText);
@@ -817,7 +815,7 @@ public sealed partial class MainForm : Form
             return;
         }
 
-        DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
+        BrowserLauncher.DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
         if (endpoint != null)
         {
             if (!BrowserLauncher.MatchesBrowserFamily(endpoint, family))
@@ -1198,7 +1196,6 @@ public sealed partial class MainForm : Form
             Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập tên cho Selector."));
             return;
         }
-
         if (string.IsNullOrWhiteSpace(txtSelector.Text))
         {
             Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập CSS Selector."));
@@ -1597,8 +1594,7 @@ public sealed partial class MainForm : Form
         finally
         {
             if (ReferenceEquals(keywordCancellation, cancellation))
-                keywordCancellation = null;
-            cancellation.Dispose();
+                keywordCancellation = null;            cancellation.Dispose();
 
             SetKeywordState(KeywordState.Off);
             SetKeywordToggle(false);
