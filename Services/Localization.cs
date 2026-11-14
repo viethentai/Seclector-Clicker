@@ -144,6 +144,8 @@ public static class Localization
             "The browser started successfully. Click 'Scan tabs' to pick a tab.",
         ["Đã gọi lệnh mở nhưng cổng kết nối chưa sẵn sàng. Có thể trình duyệt còn chạy nền từ phiên trước, hoặc phiên bản trình duyệt không cho phép cổng gỡ lỗi với hồ sơ mặc định."] =
             "The browser was launched but the control port is not ready. It may still be running in the background, or this browser version does not allow the debug port with the default profile.",
+        ["Cổng 9222 đã mở nhưng danh tính trình duyệt không khớp lựa chọn. Browser: {0}; User-Agent: {1}"] =
+            "Port 9222 is open, but the browser identity does not match the selected browser. Browser: {0}; User-Agent: {1}",
         ["Đang kết nối lại..."] = "Reconnecting...",
         ["Mất kết nối trình duyệt. Đang thử kết nối lại ({0}/3)..."] = "Browser connection lost. Reconnecting ({0}/3)...",
         ["Chưa chọn được tab sau khi kết nối lại."] = "Could not select a tab after reconnecting.",
