@@ -1496,7 +1496,8 @@ public sealed partial class MainForm : Form
         List<string> keywords = ParseKeywords(txtKeyword.Text);
 
         string? problem = null;
-        if (isStarting || isPickingElement || isOpeningBrowser || isScanningTabs)
+        if (isStarting || isPickingElement || isOpeningBrowser || isScanningTabs ||
+            isSelectingTab || isRefreshingTabs)
             problem = Localization.T("Đang có thao tác khác. Hãy thử lại sau.");
         else if (!browser.IsConnected)
             problem = Localization.T("Hãy mở trình duyệt, quét tab và chọn một tab trước.");
