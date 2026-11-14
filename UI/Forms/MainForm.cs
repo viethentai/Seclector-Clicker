@@ -603,17 +603,20 @@ public sealed partial class MainForm : Form
             return;
         }
 
-        try
+        if (!BrowserLauncher.SaveExecutable(dialog.FileName))
         {
-            BrowserLauncher.SaveExecutable(dialog.FileName);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            Log(ActivityLevel.Warning, Localization.F("Không lưu được đường dẫn trình duyệt: {0}", DescribeError(exception)));
+            Log(ActivityLevel.Warning, Localization.T("Không lưu được đường dẫn trình duyệt. Hãy kiểm tra quyền ghi vào thư mục dữ liệu ứng dụng."));
+            return;
         }
 
-        SettingsStore.Current.BrowserFamily = "custom";
-        SettingsStore.Save();
+        string previousFamily = Settings.BrowserFamily;
+        Settings.BrowserFamily = "custom";
+        if (!SettingsStore.Save())
+        {
+            Settings.BrowserFamily = previousFamily;
+            Log(ActivityLevel.Warning, Localization.T("Không lưu được lựa chọn trình duyệt. Cài đặt trước đó vẫn được giữ."));
+            return;
+        }
 
         isLoadingSettings = true;
         try
@@ -835,7 +838,11 @@ public sealed partial class MainForm : Form
                 return;
             }
 
-            BrowserLauncher.SaveExecutable(executable);
+            if (!BrowserLauncher.SaveExecutable(executable))
+            {
+                Log(ActivityLevel.Warning, Localization.T("Không lưu được đường dẫn trình duyệt. Hãy kiểm tra quyền ghi vào thư mục dữ liệu ứng dụng."));
+                return;
+            }
         }
 
         if (executable == null)
