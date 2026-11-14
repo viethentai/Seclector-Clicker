@@ -329,14 +329,14 @@ public sealed class BrowserController
         IPage currentPage = RequireSelectedPage();
         cancelPickRequested = false;
 
+        isPickingElement = true;
         try
         {
             await currentPage.BringToFrontAsync();
             if (cancelPickRequested)
                 return null;
 
-            isPickingElement = true;
-            return await currentPage.EvaluateAsync<string?>(PickElementScript.Replace("__PICK_TEXT__", Localization.T("Bấm vào phần tử cần chọn — Esc để hủy")));
+            return await currentPage.EvaluateAsync<string?>(PickElementScript, Localization.T("Bấm vào phần tử cần chọn — Esc để hủy"));
         }
         finally
         {
@@ -353,9 +353,10 @@ public sealed class BrowserController
 
         try
         {
-            await currentPage.EvaluateAsync("() => window.__autoClickSelectorCancelPick?.()");
+            await currentPage.EvaluateAsync("() => window.__autoClickSelectorCancelPick?.()")
+                .WaitAsync(TimeSpan.FromSeconds(2));
         }
-        catch (PlaywrightException)
+        catch (Exception exception) when (exception is PlaywrightException or TimeoutException)
         {
         }
     }
@@ -386,14 +387,35 @@ public sealed class BrowserController
             ?? throw new InvalidOperationException(Localization.T("Không tìm thấy Browser Context."));
 
         IPage newPage = await context.NewPageAsync();
-        await newPage.GotoAsync(uri.ToString(), new PageGotoOptions
-        {
-            WaitUntil = WaitUntilState.DOMContentLoaded,
-            Timeout = 30_000
-        });
+        bool selected = false;
 
-        page = newPage;
-        return true;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await newPage.GotoAsync(uri.ToString(), new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 30_000
+            }).WaitAsync(cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            page = newPage;
+            selected = true;
+            return true;
+        }
+        finally
+        {
+            if (!selected)
+            {
+                try
+                {
+                    await newPage.CloseAsync();
+                }
+                catch (PlaywrightException)
+                {
+                }
+            }
+        }
     }
 
     public async Task StopAsync()
@@ -502,14 +524,14 @@ public sealed class BrowserController
         """;
 
     private const string PickElementScript = """
-        () => new Promise((resolve) => {
+        (message) => new Promise((resolve) => {
             const root = document.documentElement;
             const oldCursor = root.style.cursor;
             const overlay = document.createElement('div');
             let finished = false;
             const timer = setTimeout(() => finish(null), 120000);
 
-            overlay.textContent = '__PICK_TEXT__';
+            overlay.textContent = message;
             Object.assign(overlay.style, {
                 position: 'fixed', top: '12px', left: '50%',
                 transform: 'translateX(-50%)', zIndex: '2147483647',

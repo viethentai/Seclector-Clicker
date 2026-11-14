@@ -3,6 +3,7 @@ name: .NET 10 build
 on:
   push:
     branches:
+      - update
       - security-hardening
   pull_request:
     branches:

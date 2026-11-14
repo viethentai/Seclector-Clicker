@@ -11,7 +11,7 @@ internal static class SettingsStore
 
     public static AppSettings Current => current ??= Load();
 
-    public static void Save()
+    public static bool Save()
     {
         try
         {
@@ -20,16 +20,18 @@ internal static class SettingsStore
             string temporary = FilePath + ".tmp";
             File.WriteAllText(temporary, JsonSerializer.Serialize(Current, Options));
             File.Move(temporary, FilePath, overwrite: true);
+            return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            return false;
         }
     }
 
-    public static void Update(Action<AppSettings> change)
+    public static bool Update(Action<AppSettings> change)
     {
         change(Current);
-        Save();
+        return Save();
     }
 
     private static AppSettings Load()

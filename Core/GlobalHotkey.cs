@@ -23,10 +23,23 @@ internal static class GlobalHotkey
 
     public static bool RegisterAll(IntPtr handle)
     {
-        bool start = RegisterHotKey(handle, StartId, NoModifiers, VkF6);
-        bool stop = RegisterHotKey(handle, StopId, NoModifiers, VkF7);
-        bool click = RegisterHotKey(handle, ClickId, NoModifiers, VkF8);
-        return start && stop && click;
+        if (!RegisterHotKey(handle, StartId, NoModifiers, VkF6))
+            return false;
+
+        if (!RegisterHotKey(handle, StopId, NoModifiers, VkF7))
+        {
+            UnregisterHotKey(handle, StartId);
+            return false;
+        }
+
+        if (!RegisterHotKey(handle, ClickId, NoModifiers, VkF8))
+        {
+            UnregisterHotKey(handle, StopId);
+            UnregisterHotKey(handle, StartId);
+            return false;
+        }
+
+        return true;
     }
 
     public static void UnregisterAll(IntPtr handle)
