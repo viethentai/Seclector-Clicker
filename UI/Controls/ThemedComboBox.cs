@@ -271,7 +271,7 @@ internal sealed class ComboPopup : Form
 
     private int ContentHeight => items.Count * rowHeight + ThemedComboBox.PopupInset * 2;
 
-    public void HandleWheel(int delta) => scrollBar.ScrollBy(-delta / 120 * rowHeight);
+    public void HandleWheel(int delta) => scrollBar.ScrollBy(-delta * rowHeight / 120);
 
     protected override void OnResize(EventArgs e)
     {
