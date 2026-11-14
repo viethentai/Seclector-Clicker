@@ -19,6 +19,7 @@ public sealed partial class MainForm : Form
 
     private readonly BrowserController browser = new();
     private readonly SemaphoreSlim clickGate = new(1, 1);
+    private readonly SemaphoreSlim browserRecoveryGate = new(1, 1);
     private readonly Dictionary<string, string> savedSelectors = new(StringComparer.OrdinalIgnoreCase);
     private readonly Stopwatch runStopwatch = new();
     private readonly System.Windows.Forms.Timer statsTimer = new() { Interval = 1000 };
@@ -348,57 +349,75 @@ public sealed partial class MainForm : Form
 
     private async Task<bool> TryRecoverBrowserAsync(CancellationToken token)
     {
-        for (int attempt = 1; attempt <= 3; attempt++)
+        try
         {
-            if (token.IsCancellationRequested)
-                return false;
-
-            try
-            {
-                Log(ActivityLevel.Process, Localization.F("Mất kết nối trình duyệt. Đang thử kết nối lại ({0}/3)...", attempt));
-                await Task.Delay(TimeSpan.FromSeconds(attempt), token);
-
-                if (attempt == 2)
-                    await RelaunchBrowserIfClosedAsync();
-
-                BrowserLauncher.DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
-                if (endpoint == null || !BrowserLauncher.MatchesBrowserFamily(endpoint, Settings.BrowserFamily))
-                {
-                    if (endpoint != null)
-                        Log(ActivityLevel.Warning, Localization.F("Cổng kết nối hiện thuộc trình duyệt khác: {0}.", endpoint.Browser));
-                    continue;
-                }
-
-                await browser.ConnectAsync();
-
-                if (!await SelectRecoveredTabAsync(token))
-                {
-                    Log(ActivityLevel.Warning, Localization.T("Chưa chọn được tab sau khi kết nối lại."));
-                    continue;
-                }
-
-                await RefreshTabsAsync();
-                UpdateConnectionStatus();
-                SaveSettings(settings => settings.LastTabUrl = lastTabUrl);
-                return true;
-            }
-            catch (OperationCanceledException)
-            {
-                return false;
-            }
-            catch (Exception exception)
-            {
-                Log(ActivityLevel.Warning, Localization.F("Kết nối lại thất bại: {0}", DescribeError(exception)));
-            }
+            await browserRecoveryGate.WaitAsync(token);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
         }
 
-        return false;
+        try
+        {
+            if (browser.IsConnected)
+                return true;
+
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                if (token.IsCancellationRequested)
+                    return false;
+
+                try
+                {
+                    Log(ActivityLevel.Process, Localization.F("Mất kết nối trình duyệt. Đang thử kết nối lại ({0}/3)...", attempt));
+                    await Task.Delay(TimeSpan.FromSeconds(attempt), token);
+
+                    if (attempt == 2)
+                        await RelaunchBrowserIfClosedAsync();
+
+                    BrowserLauncher.DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
+                    if (endpoint == null || !BrowserLauncher.MatchesBrowserFamily(endpoint, Settings.BrowserFamily))
+                    {
+                        if (endpoint != null)
+                            Log(ActivityLevel.Warning, Localization.F("Cổng kết nối hiện thuộc trình duyệt khác: {0}.", endpoint.Browser));
+                        continue;
+                    }
+
+                    await browser.ConnectAsync();
+
+                    if (!await SelectRecoveredTabAsync(token))
+                    {
+                        Log(ActivityLevel.Warning, Localization.T("Chưa chọn được tab sau khi kết nối lại."));
+                        continue;
+                    }
+
+                    await RefreshTabsAsync();
+                    UpdateConnectionStatus();
+                    SaveSettings(settings => settings.LastTabUrl = lastTabUrl);
+                    return true;
+                }
+                catch (OperationCanceledException)
+                {
+                    return false;
+                }
+                catch (Exception exception)
+                {
+                    Log(ActivityLevel.Warning, Localization.F("Kết nối lại thất bại: {0}", DescribeError(exception)));
+                }
+            }
+
+            return false;
+        }
+        finally
+        {
+            browserRecoveryGate.Release();
+        }
     }
 
     private async Task RelaunchBrowserIfClosedAsync()
     {
         string family = Settings.BrowserFamily;        string? executable = BrowserLauncher.FindExecutable(family);
-
         if (executable is null || BrowserLauncher.IsBrowserRunning(executable))
             return;
 
@@ -797,8 +816,7 @@ public sealed partial class MainForm : Form
         {
             Log(ActivityLevel.Error, Localization.F("Không mở được trình duyệt: {0}", DescribeError(exception)));
         }        finally
-        {
-            isOpeningBrowser = false;
+        {            isOpeningBrowser = false;
             btnOpenBrowser.Text = Localization.T(OpenBrowserIdleText);
             UpdateControlStates();
             UpdateConnectionStatus();
@@ -1197,8 +1215,7 @@ public sealed partial class MainForm : Form
             return;
         }
         if (string.IsNullOrWhiteSpace(txtSelector.Text))
-        {
-            Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập CSS Selector."));
+        {            Log(ActivityLevel.Warning, Localization.T("Vui lòng nhập CSS Selector."));
             return;
         }
 
@@ -1597,8 +1614,7 @@ public sealed partial class MainForm : Form
                 keywordCancellation = null;            cancellation.Dispose();
 
             SetKeywordState(KeywordState.Off);
-            SetKeywordToggle(false);
-            UpdateControlStates();
+            SetKeywordToggle(false);            UpdateControlStates();
             UpdateConnectionStatus();
             Log(ActivityLevel.Info, Localization.T("Click khi có từ khóa: đã tắt."));
         }
