@@ -361,6 +361,14 @@ public sealed partial class MainForm : Form
                 if (attempt == 2)
                     await RelaunchBrowserIfClosedAsync();
 
+                DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
+                if (endpoint == null || !BrowserLauncher.MatchesBrowserFamily(endpoint, Settings.BrowserFamily))
+                {
+                    if (endpoint != null)
+                        Log(ActivityLevel.Warning, Localization.F("Cổng kết nối hiện thuộc trình duyệt khác: {0}.", endpoint.Browser));
+                    continue;
+                }
+
                 await browser.ConnectAsync();
 
                 if (!await SelectRecoveredTabAsync(token))
@@ -389,7 +397,8 @@ public sealed partial class MainForm : Form
 
     private async Task RelaunchBrowserIfClosedAsync()
     {
-        string? executable = BrowserLauncher.FindExecutable(Settings.BrowserFamily);
+        string family = Settings.BrowserFamily;
+        string? executable = BrowserLauncher.FindExecutable(family);
 
         if (executable is null || BrowserLauncher.IsBrowserRunning(executable))
             return;
@@ -894,7 +903,7 @@ public sealed partial class MainForm : Form
         }
 
         bool ready = await BrowserLauncher.WaitForDebugPortAsync(
-            BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15));
+            BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15), family);
 
         if (ready)
         {
