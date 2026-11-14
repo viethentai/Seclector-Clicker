@@ -106,13 +106,21 @@ internal static class BrowserLauncher
         if (IsFamily(family, "chrome"))
             return identity.Contains("Chrome/", StringComparison.OrdinalIgnoreCase)
                 && !identity.Contains("Edg/", StringComparison.OrdinalIgnoreCase)
-                && !identity.Contains("CocCoc", StringComparison.OrdinalIgnoreCase);
+                && !HasCocCocMarker(identity);
 
+        // Coc Coc is Chromium based and its debug endpoint normally reports itself as
+        // "Chrome/x.y.z" without any Coc Coc marker, so accept any non-Edge Chromium identity.
         if (IsFamily(family, "coccoc"))
-            return identity.Contains("CocCoc", StringComparison.OrdinalIgnoreCase);
+            return HasCocCocMarker(identity)
+                || (identity.Contains("Chrome/", StringComparison.OrdinalIgnoreCase)
+                    && !identity.Contains("Edg/", StringComparison.OrdinalIgnoreCase));
 
         return false;
     }
+
+    private static bool HasCocCocMarker(string identity) =>
+        identity.Contains("CocCoc", StringComparison.OrdinalIgnoreCase)
+        || identity.Contains("coc_coc", StringComparison.OrdinalIgnoreCase);
 
     public static async Task<bool> IsDebugPortOpenAsync(
         int port = DebugPort,
