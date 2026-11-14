@@ -400,7 +400,7 @@ public sealed partial class MainForm : Form
             BrowserLauncher.Start(executable);
 
             bool ready = await BrowserLauncher.WaitForDebugPortAsync(
-                BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15));
+                BrowserLauncher.DebugPort, TimeSpan.FromSeconds(15), family);
 
             if (!ready)
                 Log(ActivityLevel.Warning, Localization.T("Cổng kết nối chưa sẵn sàng sau 15 giây."));
@@ -740,6 +740,21 @@ public sealed partial class MainForm : Form
         try
         {
             Log(ActivityLevel.Process, Localization.T("Đang kết nối trình duyệt để quét tab..."));
+            DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
+            if (endpoint == null)
+            {
+                Log(ActivityLevel.Error, Localization.T("Không tìm thấy trình duyệt hợp lệ đang mở cổng kết nối 9222."));
+                return;
+            }
+
+            if (!BrowserLauncher.MatchesBrowserFamily(endpoint, Settings.BrowserFamily))
+            {
+                Log(ActivityLevel.Error, Localization.F(
+                    "Cổng 9222 đang thuộc trình duyệt không khớp lựa chọn hiện tại: {0}. Hãy đóng trình duyệt đó hoặc chọn đúng loại trình duyệt.",
+                    endpoint.Browser));
+                return;
+            }
+
             await browser.ConnectAsync();
             await RefreshTabsAsync();
         }
@@ -793,8 +808,17 @@ public sealed partial class MainForm : Form
             return;
         }
 
-        if (await BrowserLauncher.IsDebugPortOpenAsync())
+        DebugEndpointInfo? endpoint = await BrowserLauncher.GetDebugEndpointInfoAsync();
+        if (endpoint != null)
         {
+            if (!BrowserLauncher.MatchesBrowserFamily(endpoint, family))
+            {
+                Log(ActivityLevel.Error, Localization.F(
+                    "Cổng 9222 đang thuộc trình duyệt không khớp lựa chọn hiện tại: {0}. Hãy đóng trình duyệt đó hoặc chọn đúng loại trình duyệt.",
+                    endpoint.Browser));
+                return;
+            }
+
             Log(ActivityLevel.Success, Localization.T("Trình duyệt đã mở sẵn với cổng kết nối. Hãy bấm 'Quét tab' để chọn tab."));
             return;
         }
