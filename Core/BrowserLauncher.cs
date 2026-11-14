@@ -26,11 +26,31 @@ internal static class BrowserLauncher
         return null;
     }
 
-    public static void SaveExecutable(string path)
+    public static bool SaveExecutable(string path)
     {
         string file = SettingsFile;
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        File.WriteAllText(file, JsonSerializer.Serialize(new BrowserSettings(path)));
+        string temporary = file + ".tmp";
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(temporary, JsonSerializer.Serialize(new BrowserSettings(path)));
+            File.Move(temporary, file, overwrite: true);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            try
+            {
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
+            }
+            catch (IOException)
+            {
+            }
+
+            return false;
+        }
     }
 
     public static async Task<DebugEndpointInfo?> GetDebugEndpointInfoAsync(int port = DebugPort)
