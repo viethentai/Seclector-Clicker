@@ -287,7 +287,8 @@ public sealed partial class MainForm : Form
         if (isLoadingSettings)
             return;
 
-        SettingsStore.Update(change);
+        if (!SettingsStore.Update(change))
+            Log(ActivityLevel.Warning, Localization.T("Không lưu được cài đặt. Hãy kiểm tra quyền ghi vào thư mục dữ liệu ứng dụng."));
     }
 
     private void QueueSettingsSave(Action<AppSettings> change)
@@ -303,7 +304,8 @@ public sealed partial class MainForm : Form
     private void SettingsSaveTimer_Tick(object? sender, EventArgs e)
     {
         settingsSaveTimer.Stop();
-        SettingsStore.Save();
+        if (!SettingsStore.Save())
+            Log(ActivityLevel.Warning, Localization.T("Không lưu được cài đặt. Hãy kiểm tra quyền ghi vào thư mục dữ liệu ứng dụng."));
     }
 
     private void CmbLanguage_SelectedIndexChanged(object? sender, EventArgs e)
@@ -318,7 +320,8 @@ public sealed partial class MainForm : Form
         Localization.SetLanguage(language);
         SettingsStore.Current.Language = language;
         settingsSaveTimer.Stop();
-        SettingsStore.Save();
+        if (!SettingsStore.Save())
+            Log(ActivityLevel.Warning, Localization.T("Không lưu được cài đặt. Hãy kiểm tra quyền ghi vào thư mục dữ liệu ứng dụng."));
         ApplyLanguage();
     }
 
@@ -1772,7 +1775,8 @@ public sealed partial class MainForm : Form
 
             settingsSaveTimer.Stop();
             settingsSaveTimer.Dispose();
-            SettingsStore.Save();
+            if (!SettingsStore.Save())
+                Log(ActivityLevel.Warning, Localization.T("Không lưu được cài đặt khi đóng ứng dụng."));
 
             if (trayIcon != null)
             {
