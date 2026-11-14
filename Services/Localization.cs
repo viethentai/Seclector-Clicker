@@ -164,6 +164,9 @@ public static class Localization
             "Could not save the browser path. Check write permissions for the application data folder.",
         ["Không lưu được lựa chọn trình duyệt. Cài đặt trước đó vẫn được giữ."] =
             "Could not save the browser selection. The previous setting has been kept.",
+        ["Không lưu được cài đặt. Hãy kiểm tra quyền ghi vào thư mục dữ liệu ứng dụng."] =
+            "Could not save the settings. Check write permissions for the application data folder.",
+        ["Không lưu được cài đặt khi đóng ứng dụng."] = "Could not save the settings when closing the app.",
         ["Đã chọn trình duyệt: {0}"] = "Browser selected: {0}",
         ["Đã xuất nhật ký: {0}"] = "Log exported: {0}",
         ["Không xuất được nhật ký: {0}"] = "Could not export the log: {0}",

@@ -61,7 +61,7 @@ public sealed class LogView : Control
         Controls.Add(viewport);
         Controls.Add(scrollBar);
 
-        WheelRouter.Register(viewport, delta => scrollBar.ScrollBy(-delta / 120 * WheelStepPixels));
+        WheelRouter.Register(viewport, delta => scrollBar.ScrollBy(-delta * WheelStepPixels / 120));
     }
 
     public int TotalCount => entries.Count;

@@ -116,4 +116,10 @@ public sealed class ToggleSwitch : Control
         base.OnEnabledChanged(e);
         Invalidate();
     }
+
+    protected override void OnTextChanged(EventArgs e)
+    {
+        base.OnTextChanged(e);
+        Invalidate();
+    }
 }
