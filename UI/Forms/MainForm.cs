@@ -924,8 +924,21 @@ public sealed partial class MainForm : Form
         }
         else
         {
-            Log(ActivityLevel.Error, Localization.T(
-                "Đã gọi lệnh mở nhưng cổng kết nối chưa sẵn sàng. Có thể trình duyệt còn chạy nền từ phiên trước, hoặc phiên bản trình duyệt không cho phép cổng gỡ lỗi với hồ sơ mặc định."));
+            BrowserLauncher.DebugEndpointInfo? endpointAfterLaunch =
+                await BrowserLauncher.GetDebugEndpointInfoAsync();
+
+            if (endpointAfterLaunch != null)
+            {
+                Log(ActivityLevel.Error, Localization.F(
+                    "Cổng 9222 đã mở nhưng danh tính trình duyệt không khớp lựa chọn. Browser: {0}; User-Agent: {1}",
+                    endpointAfterLaunch.Browser,
+                    endpointAfterLaunch.UserAgent));
+            }
+            else
+            {
+                Log(ActivityLevel.Error, Localization.T(
+                    "Đã gọi lệnh mở nhưng cổng kết nối chưa sẵn sàng. Có thể trình duyệt còn chạy nền từ phiên trước, hoặc phiên bản trình duyệt không cho phép cổng gỡ lỗi với hồ sơ mặc định."));
+            }
         }
     }
 
