@@ -1760,12 +1760,29 @@ public sealed partial class MainForm : Form
         {
             Task? validationTask = startValidationCompletion?.Task;
             if (validationTask != null)
-                await validationTask;
+            {
+                try
+                {
+                    await validationTask.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (TimeoutException)
+                {
+                    Log(ActivityLevel.Warning, Localization.T("Đang chờ kiểm tra Selector kết thúc khi đóng ứng dụng."));
+                }
+            }
 
             autoClickCancellation?.Cancel();
             keywordCancellation?.Cancel();
             manualClickCancellation?.Cancel();
-            await browser.CancelPickElementAsync();
+
+            try
+            {
+                await browser.CancelPickElementAsync().WaitAsync(TimeSpan.FromSeconds(3));
+            }
+            catch (TimeoutException)
+            {
+                Log(ActivityLevel.Warning, Localization.T("Không thể hủy thao tác chọn phần tử kịp thời."));
+            }
 
             Task[] activeTasks = activeBrowserOperations
                 .Concat(new[] { autoClickTask, keywordWatcherTask, manualClickTask })
@@ -1775,7 +1792,16 @@ public sealed partial class MainForm : Form
                 .ToArray();
 
             if (activeTasks.Length > 0)
-                await Task.WhenAll(activeTasks);
+            {
+                try
+                {
+                    await Task.WhenAll(activeTasks).WaitAsync(TimeSpan.FromSeconds(10));
+                }
+                catch (TimeoutException)
+                {
+                    Log(ActivityLevel.Warning, Localization.T("Một số thao tác trình duyệt vẫn chưa kết thúc. Ứng dụng sẽ tiếp tục đóng."));
+                }
+            }
         }
         catch (Exception exception)
         {
@@ -1785,7 +1811,11 @@ public sealed partial class MainForm : Form
         {
             try
             {
-                await browser.StopAsync();
+                await browser.StopAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException)
+            {
+                Log(ActivityLevel.Warning, Localization.T("Hết thời gian chờ khi đóng kết nối trình duyệt."));
             }
             catch (Exception exception)
             {
