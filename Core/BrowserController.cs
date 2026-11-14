@@ -329,13 +329,13 @@ public sealed class BrowserController
         IPage currentPage = RequireSelectedPage();
         cancelPickRequested = false;
 
+        isPickingElement = true;
         try
         {
             await currentPage.BringToFrontAsync();
             if (cancelPickRequested)
                 return null;
 
-            isPickingElement = true;
             return await currentPage.EvaluateAsync<string?>(PickElementScript, Localization.T("Bấm vào phần tử cần chọn — Esc để hủy"));
         }
         finally
